@@ -56,6 +56,29 @@ services:
     security_opt:
       - "no-new-privileges:true"
 
+  # Controlled receiver for the M4 containment experiment
+  # (lab/services/exfil-sink). It has no direct internet route either --
+  # not that it needs one, it only receives. Whether the agent can reach
+  # it at all is governed by the same gateway network.allow/.deny as any
+  # other target; it never appears in the policy engine's own logic, only
+  # as an ordinary hostname a manifest can allow or deny.
+  exfil-sink:
+    build:
+      context: ..
+      dockerfile: lab/services/exfil-sink/Dockerfile
+    networks:
+      internal:
+    volumes:
+      - ${IDHN_RUN_DIR:-./runs/local}:/run
+    environment:
+      PORT: "9100"
+      IDHN_CANARY_VALUE: ${IDHN_CANARY_VALUE:-}
+      SINK_LOG_PATH: /run/exfil-sink-received.jsonl
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+
   agent:
     build:
       context: ..
@@ -65,6 +88,7 @@ services:
     depends_on:
       - gateway
       - fetch-service
+      - exfil-sink
     volumes:
       - ../lab/repos/toy-app:/workspace
       # Codex's ChatGPT-account credentials, mounted read-only as a single

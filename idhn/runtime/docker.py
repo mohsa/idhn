@@ -75,7 +75,19 @@ from idhn.runtime.runtime import Runtime
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = REPO_ROOT / "docker" / "compose.yaml"
-TOY_APP_DIR = REPO_ROOT / "lab" / "repos" / "toy-app"
+DEFAULT_WORKSPACE_DIR = REPO_ROOT / "lab" / "repos" / "toy-app"
+
+
+def read_canary_value(workspace_dir: Path) -> str:
+    """Read lab/repos/<app>/protected/canary.txt if present, for
+    lab/services/exfil-sink to check received bodies against (M4). Empty
+    string (not an error) when a workspace has no canary fixture -- most
+    don't.
+    """
+    canary_path = workspace_dir / "protected" / "canary.txt"
+    if not canary_path.exists():
+        return ""
+    return canary_path.read_text(encoding="utf-8").strip()
 
 
 def _mount_spec_to_compose_volume(spec) -> dict:
@@ -89,7 +101,7 @@ def _mount_spec_to_compose_volume(spec) -> dict:
     }
 
 
-def write_filesystem_override(manifest: Manifest, run_dir: Path, codex_auth_path: str) -> Path:
+def write_filesystem_override(manifest: Manifest, run_dir: Path, codex_auth_path: str, workspace_dir: Path) -> Path:
     """Generate a per-run compose override giving the agent service the
     EXACT volumes its filesystem policy implies (see
     enforcement/filesystem.py), plus the auth and run-dir mounts every
@@ -101,18 +113,25 @@ def write_filesystem_override(manifest: Manifest, run_dir: Path, codex_auth_path
     can't be a static file at all without contorting Compose into being
     IDHN's filesystem policy engine.
     """
-    plan = build_mount_plan(manifest.capabilities, str(TOY_APP_DIR))
+    plan = build_mount_plan(manifest.capabilities, str(workspace_dir))
 
-    # A tmpfs mount's target directory has to already exist: the base
-    # /workspace mount is read-only, so Docker can't create a missing
-    # mountpoint inside it at container-init time (`mkdirat ...: read-only
-    # file system`, found by actually running this). A deny pattern for a
-    # directory that doesn't exist in the toy repo yet would otherwise
-    # break the whole container start, not just fail to mask anything.
+    # Every mount's target has to already exist as the right kind of
+    # thing (directory for tmpfs, a regular file for the empty-file
+    # stub): the base /workspace mount is read-only, so the container
+    # runtime can't create a missing mountpoint inside it at init time
+    # (`mkdirat ...: read-only file system` for a missing directory;
+    # the equivalent for a missing file, found by actually running this
+    # against a workspace that doesn't happen to have a deny-listed
+    # file/dir already present). A deny pattern the repo doesn't already
+    # have something at would otherwise break the whole container start,
+    # not just fail to mask anything.
     for spec in plan:
+        target_path = workspace_dir / Path(spec.container_path).relative_to("/workspace")
         if spec.kind == "tmpfs":
-            host_dir = TOY_APP_DIR / Path(spec.container_path).relative_to("/workspace")
-            host_dir.mkdir(parents=True, exist_ok=True)
+            target_path.mkdir(parents=True, exist_ok=True)
+        elif spec.kind == "bind" and spec.mode == "ro" and not target_path.exists():
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.touch()
 
     volumes = [_mount_spec_to_compose_volume(spec) for spec in plan]
     volumes.append({"type": "bind", "source": codex_auth_path, "target": "/home/agent/.codex/auth.json", "read_only": True})
@@ -140,13 +159,15 @@ class DockerRuntime(Runtime):
         before_test_cmd: str | None = None,
         after_test_cmd: str | None = None,
         task_description: str | None = None,
+        workspace_dir: Path | None = None,
     ) -> int:
         self._run_dir = run_dir
         run_dir.mkdir(parents=True, exist_ok=True)
+        workspace_dir = (workspace_dir or DEFAULT_WORKSPACE_DIR).resolve()
 
         env = os.environ.copy()
         env.setdefault("IDHN_CODEX_AUTH_PATH", str(DEFAULT_CODEX_AUTH_PATH))
-        override_path = write_filesystem_override(manifest, run_dir, env["IDHN_CODEX_AUTH_PATH"])
+        override_path = write_filesystem_override(manifest, run_dir, env["IDHN_CODEX_AUTH_PATH"], workspace_dir)
         env.update(
             {
                 "IDHN_RUN_ID": execution_id,
@@ -158,6 +179,7 @@ class DockerRuntime(Runtime):
                 "IDHN_ALLOWED_BINARIES": ",".join(allowed_binaries(manifest.capabilities)),
                 "IDHN_CPU": str(manifest.limits.get("cpu", 2)),
                 "IDHN_MEMORY": str(manifest.limits.get("memory", "4g")),
+                "IDHN_CANARY_VALUE": read_canary_value(workspace_dir),
             }
         )
 
@@ -217,17 +239,20 @@ class DockerRuntime(Runtime):
         before_test_cmd: str | None = None,
         after_test_cmd: str | None = None,
         task_description: str | None = None,
+        workspace_dir: Path | None = None,
     ) -> int:
         """Run the agent with NO IDHN policy, gateway, or network isolation.
 
-        This is the M3-A baseline: Codex in the same disposable container,
-        same toy repo, same task, but with direct internet access and no
-        capability boundary at all. It exists only to show the task is
-        solvable without IDHN in the loop, so the constrained runs (M3-B)
-        can be judged against a real baseline instead of an assumption.
-        Never use docker/compose.baseline.yaml for anything else.
+        This is the M3-A baseline (and M4's Run B): Codex in the same
+        disposable container, same repo, same task, but with direct
+        internet access and no capability boundary at all. It exists only
+        to show a task is solvable, or an attack succeeds, without IDHN in
+        the loop, so the constrained runs can be judged against a real
+        baseline instead of an assumption. Never use
+        docker/compose.baseline.yaml for anything else.
         """
         run_dir.mkdir(parents=True, exist_ok=True)
+        workspace_dir = (workspace_dir or DEFAULT_WORKSPACE_DIR).resolve()
 
         env = os.environ.copy()
         env.setdefault("IDHN_CODEX_AUTH_PATH", str(DEFAULT_CODEX_AUTH_PATH))
@@ -237,6 +262,8 @@ class DockerRuntime(Runtime):
                 "IDHN_RUN_DIR": str(run_dir.resolve()),
                 "IDHN_TASK": task_description or "",
                 "IDHN_AGENT_COMMAND": build_agent_script(command, before_test_cmd, after_test_cmd),
+                "IDHN_WORKSPACE_DIR": str(workspace_dir.resolve()),
+                "IDHN_CANARY_VALUE": read_canary_value(workspace_dir),
             }
         )
 

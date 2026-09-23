@@ -16,9 +16,11 @@ from idhn.adapters.codex import CodexAdapter
 from idhn.audit.m3_report import build_m3_report, render_m3_report
 from idhn.audit.m4_report import build_m4_report, render_m4_report
 from idhn.audit.report import build_report, render_text_report
+from idhn.compiler.compiler import compile_task
+from idhn.compiler.context import gather_context
 from idhn.core.manifest import ManifestError, load_manifest
 from idhn.core.manifest import validate as validate_manifest
-from idhn.runtime.docker import DockerRuntime, read_canary_value
+from idhn.runtime.docker import DockerRuntime, read_canary_value, run_codex_prompt
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RUNS_DIR = REPO_ROOT / "runs"
@@ -64,6 +66,57 @@ def validate(policy_path: str) -> None:
             click.echo(f"  - {error}")
         sys.exit(1)
     click.echo(f"OK: {policy_path}")
+
+
+@main.command("compile")
+@click.option("--workspace", "workspace_path", default=None, type=click.Path(exists=True, file_okay=False), help="Repo to gather LIMITED context from (default: lab/repos/toy-app). The compiler never gets live access to it.")
+@click.option("--run-id", "run_id", default=None, help="Reuse a specific run id instead of generating one.")
+@click.argument("task")
+def compile_cmd(workspace_path: str | None, run_id: str | None, task: str) -> None:
+    """Propose an initial capability envelope for a task (v0.2-A).
+
+    Untrusted: this is a proposal, not a grant -- it's never wired into
+    enforcement. Given only the task text and a compact repository
+    summary (languages, file tree, manifest filenames -- never live
+    filesystem access, never an example of a hand-written manifest),
+    asks Codex (in one-shot mode, no workspace access of its own) for a
+    capability envelope, then strictly parses and structurally validates
+    whatever it produces.
+    """
+    workspace_dir = Path(workspace_path) if workspace_path else (REPO_ROOT / "lab" / "repos" / "toy-app")
+    context = gather_context(workspace_dir)
+
+    execution_id = run_id or f"compile-{datetime.now(timezone.utc):%Y%m%d}-{uuid.uuid4().hex[:6]}"
+    run_dir = DEFAULT_RUNS_DIR / execution_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    click.echo(f"IDHN compile {execution_id}")
+    click.echo(f"  workspace: {workspace_dir}")
+    click.echo(f"  languages: {', '.join(context.languages) or 'unknown'}")
+    click.echo(f"  task:      {task}")
+    click.echo("")
+
+    def complete(prompt: str) -> str:
+        return run_codex_prompt(prompt, execution_id, run_dir)
+
+    result = compile_task(task, context, complete)
+
+    with (run_dir / "compile-raw-output.txt").open("w", encoding="utf-8") as f:
+        f.write(result.raw_output)
+
+    if not result.ok:
+        click.echo("COMPILE FAILED -- output did not parse into a valid capability envelope:", err=True)
+        for error in result.errors:
+            click.echo(f"  - {error}", err=True)
+        click.echo(f"\nraw output saved: {run_dir / 'compile-raw-output.txt'}", err=True)
+        sys.exit(1)
+
+    envelope_path = run_dir / "compiled-envelope.yaml"
+    with envelope_path.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(result.capabilities, f, sort_keys=False)
+
+    click.echo(yaml.safe_dump(result.capabilities, sort_keys=False))
+    click.echo(f"saved: {envelope_path}")
 
 
 @main.command()

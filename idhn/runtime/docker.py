@@ -299,3 +299,40 @@ class DockerRuntime(Runtime):
             return Path(manifest.source_path).resolve().relative_to(policies_dir.resolve()).as_posix()
         except ValueError:
             return Path(manifest.source_path).as_posix()
+
+
+def run_codex_prompt(prompt: str, execution_id: str, run_dir: Path) -> str:
+    """One-shot LLM backend for idhn.compiler.compiler.compile_task: run
+    a prompt through Codex with NO workspace access (an empty temp
+    directory mounted at /workspace) and return its final agent_message
+    text.
+
+    This is deliberately the baseline (unconstrained-network) topology,
+    not the contained one -- there's no untrusted workspace content in
+    play here for it to matter, and the compiler needs to just answer,
+    not explore. Lives in runtime/docker.py (not compiler/) because it's
+    Docker/Codex-specific plumbing; idhn.compiler.compiler takes this as
+    an injected `complete` function and knows nothing about how it runs.
+    """
+    import tempfile
+
+    from idhn.adapters.codex import CodexAdapter
+    from idhn.audit.codex_events import extract_agent_messages
+
+    command = CodexAdapter().command(prompt)
+
+    with tempfile.TemporaryDirectory(prefix="idhn-compile-") as empty_workspace:
+        exit_code = DockerRuntime.run_baseline(
+            command,
+            run_dir,
+            execution_id,
+            task_description="capability compiler one-shot prompt",
+            workspace_dir=Path(empty_workspace),
+        )
+        if exit_code != 0:
+            raise RuntimeError(f"codex exited {exit_code} while compiling a capability envelope; see {run_dir}")
+
+    messages = extract_agent_messages(run_dir / "codex-events.jsonl")
+    if not messages:
+        raise RuntimeError(f"codex produced no agent_message; see {run_dir}/codex-events.jsonl")
+    return messages[-1]

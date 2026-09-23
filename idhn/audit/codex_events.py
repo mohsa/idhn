@@ -161,3 +161,34 @@ def parse_codex_events(path: Path) -> list[dict[str, Any]]:
                             )
 
     return records
+
+
+def extract_agent_messages(path: Path) -> list[str]:
+    """Return the text of every agent_message item, in order.
+
+    Used by idhn.runtime.docker.run_codex_prompt (the compiler's
+    one-shot LLM backend, v0.2-A) to get Codex's actual answer text out
+    of the --json stream -- the agent_message is the only place a plain
+    text answer to "propose a capability envelope" shows up; everything
+    else in the stream is tool-call bookkeeping.
+    """
+    if not path.exists():
+        return []
+    messages: list[str] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "item.completed":
+                continue
+            item = event.get("item")
+            if isinstance(item, dict) and item.get("type") == "agent_message":
+                text = item.get("text")
+                if isinstance(text, str):
+                    messages.append(text)
+    return messages

@@ -40,6 +40,7 @@ from idhn.audit.authority_sets import (  # noqa: E402
     compute_unnecessary,
     exercised_from_run,
     infrastructure_authority,
+    network_events_from_run,
     predicted_from_decisions,
     to_manifest_capabilities,
 )
@@ -151,9 +152,10 @@ def run_task(task_id: str) -> dict:
     after = _parse_test_counts(repo_rel, exec_run_dir / "after-tests.log")
     task_success = _task_success(after)
 
+    # Process/filesystem exercised authority comes from this leg. Network
+    # can't: run_baseline has no gateway, so there's nothing here to log
+    # an allowed connect -- see network_events_from_run's docstring.
     exercised = exercised_from_run(exec_run_dir)
-    missing = compute_missing(exercised, infra | predicted)
-    unnecessary = compute_unnecessary(predicted, exercised)
 
     # -- 3. constrained by I union P: does the compiler's own proposal work? --
     print(f"[{task_id}] resetting {repo_rel} to HEAD before the constrained leg...")
@@ -174,6 +176,17 @@ def run_task(task_id: str) -> dict:
     constrained_before = _parse_test_counts(repo_rel, constrained_run_dir / "before-tests.log")
     constrained_after = _parse_test_counts(repo_rel, constrained_run_dir / "after-tests.log")
     task_success_under_generated_authority = _task_success(constrained_after)
+
+    # Merge in network signal from the constrained leg's gateway log now
+    # that it exists: an allow confirms a predicted host was real; a
+    # deny is direct, confirmed evidence of a missing capability (not
+    # just "wasn't observed" -- the agent tried it and IDHN watched it
+    # fail), so it's added to `missing` unconditionally rather than run
+    # through compute_missing's covered-by-check.
+    network_allowed, network_denied = network_events_from_run(constrained_run_dir)
+    exercised |= network_allowed
+    missing = compute_missing(exercised, infra | predicted) | network_denied
+    unnecessary = compute_unnecessary(predicted, exercised)
 
     result = {
         "task_id": task_id,

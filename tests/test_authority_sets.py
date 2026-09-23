@@ -5,6 +5,7 @@ from idhn.audit.authority_sets import (
     compute_unnecessary,
     exercised_from_run,
     infrastructure_authority,
+    network_events_from_run,
     predicted_from_decisions,
 )
 from idhn.compiler.parser import CapabilityDecision
@@ -87,3 +88,37 @@ def test_exercised_from_run_combines_process_and_allowed_network(tmp_path):
     assert ("network", "connect", "registry.npmjs.org") in exercised
     # A denied attempt is not exercised authority.
     assert ("network", "connect", "attacker.test") not in exercised
+
+
+def test_network_events_from_run_splits_allow_and_deny(tmp_path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "events.jsonl").write_text(
+        json.dumps(
+            {
+                "action": {"resource": "network", "operation": "connect", "target": "registry.npmjs.org"},
+                "decision": "allow",
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "action": {"resource": "network", "operation": "connect", "target": "pypi.org"},
+                "decision": "deny",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    allowed, denied = network_events_from_run(run_dir)
+
+    assert allowed == {("network", "connect", "registry.npmjs.org")}
+    assert denied == {("network", "connect", "pypi.org")}
+
+
+def test_network_events_from_run_empty_when_no_gateway_log(tmp_path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    # No events.jsonl at all -- the unconstrained leg has no gateway.
+    assert network_events_from_run(run_dir) == (set(), set())

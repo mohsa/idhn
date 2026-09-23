@@ -100,6 +100,49 @@ def exercised_from_run(run_dir: Path) -> set[Capability]:
     return exercised
 
 
+def network_events_from_run(run_dir: Path) -> tuple[set[Capability], set[Capability]]:
+    """(allowed, denied) network capabilities from one run's events.jsonl
+    (the gateway's own log -- only exists for runs that go through it).
+
+    Split out from exercised_from_run because of a real gap: the
+    unconstrained leg of a v0.2-B task (idhn.runtime.docker.run_baseline)
+    has no gateway at all -- there's nothing IN THE RUN ITSELF for it to
+    isolate against -- so it can never show network authority as
+    "exercised", which would make every network prediction look
+    unnecessary regardless of reality (found by actually running T07 and
+    seeing an empty exercised network set despite the task clearly using
+    the network). The fix isn't to give the unconstrained leg a gateway;
+    it's to also pull network signal from the CONSTRAINED leg
+    (idhn.runtime.docker.DockerRuntime, run under I union P), where a
+    deny event is direct, confirmed evidence of a missing capability --
+    stronger than the usual "wasn't observed" absence-of-evidence M
+    computation, not weaker.
+    """
+    run_dir = Path(run_dir)
+    allowed: set[Capability] = set()
+    denied: set[Capability] = set()
+
+    events_path = run_dir / "events.jsonl"
+    if not events_path.exists():
+        return allowed, denied
+
+    for line in events_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        event = json.loads(line)
+        action = event.get("action", {}) or {}
+        if action.get("resource") != "network":
+            continue
+        capability = ("network", "connect", action.get("target", ""))
+        if event.get("decision") == "allow":
+            allowed.add(capability)
+        elif event.get("decision") == "deny":
+            denied.add(capability)
+
+    return allowed, denied
+
+
 def predicted_from_decisions(decisions) -> set[Capability]:
     """P from a list of idhn.compiler.parser.CapabilityDecision."""
     return {d.as_tuple() for d in decisions}

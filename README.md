@@ -594,8 +594,63 @@ for v0.2-B (20-30 tasks, precision/recall across a real sample) but not
 populated -- one data point doesn't generalize, and per the design note
 that shaped this, "required capabilities" stay something execution
 establishes, not something hand-labeled ahead of time; M3 already showed
-what hand-labeling gets wrong. v0.2-B/C/D (benchmark the compiler before
-trusting it, human-in-the-loop escalation, revocation) are not started.
+what hand-labeling gets wrong. v0.2-C/D (human-in-the-loop escalation,
+revocation) are not started.
+
+## v0.2-B: does the compiler's performance survive variation?
+
+Full writeup: `benchmark/results/v0.2-b-summary.md`. A 24-task corpus
+(4 families -- diagnose/modify/test/dependency -- x 6 tasks each,
+spanning `lab/repos/toy-app` plus two new toy repos,
+`benchmark/corpus/js-repo-2` and `.../python-repo-1`, for dependency-
+family and language-diversity coverage) with a representative 5 tasks
+run through the full pipeline: compile (P, now with categorical
+`confidence` and a one-sentence `reason` per capability -- collected,
+not yet used to gate anything), an unconstrained execution (E), and an
+execution constrained by exactly what the compiler proposed plus the
+fixed infrastructure floor (I union P) -- the literal "does the
+compiler's own proposal work" test, not inferred from the unconstrained
+run.
+
+**Against the targets fixed before running** (not adjusted after):
+task success under generated authority 80% (**PASS**, target >=80%),
+initial capability recall 37% (**MISS**, target >=80%), unnecessary
+high-risk grants 0 (**PASS**), hard-ceiling budget violations 0
+(**PASS**). n=5 -- exploratory, not final.
+
+The one clean failure (T19, dependency family) is legible, not vague:
+the compiler predicted the dependency-*installation* mechanics precisely
+(`package.json` write, `node_modules/**` write, `registry.npmjs.org`)
+and completely missed that the task also needed `src/format.js` itself
+edited to use the new package. It reasoned well about how you add a
+dependency and not at all about the source file that has to change to
+use it.
+
+The vague/specific comparison (compile-only, same underlying fix, three
+phrasings) found the hypothesized pattern for real: the vaguest phrasing
+("Fix the failing tests.") is the only one of the three that hedges with
+a `filesystem.write` grant on the test file itself, and the most
+specific phrasing is the only one where `npm`'s predicted confidence
+drops from high to medium. Authority width tracked task specificity,
+measured, not assumed.
+
+`idhn/compiler/budget.py` adds a deterministic, unconditional rejection
+of unscoped-wildcard proposals (`filesystem.write: /workspace/**`,
+`network: "*"`) regardless of stated confidence or reason -- the
+"uncertain -> grant everything" failure mode is a different, worse
+problem than an ordinary scope miss, and the benchmark needs to be able
+to catch a compiler that resolves uncertainty that way even if it never
+actually does.
+
+Two real measurement bugs found and fixed mid-run, both documented in
+the results file: the unconstrained leg has no gateway, so it could
+never show network authority as "exercised" on its own (fixed by also
+pulling allow/deny signal from the constrained leg's gateway log); and
+"task success" needed a different definition per family (a diagnose task
+succeeding means the repo was left alone; a good regression test for an
+unfixed bug is supposed to fail) -- both found by watching a correct-
+looking metric produce an obviously wrong verdict on real data, not
+anticipated in advance.
 
 ## Setup
 
@@ -790,12 +845,21 @@ Codex runs. No more enforcement features added past this tag.
   backend, basic shell tools) were missed entirely, the same category
   the hand-written manifest originally missed in M3. Not wired into
   enforcement -- a proposal, never a grant. n=1; not a benchmark yet.
-- **v0.2-B -- Benchmark the compiler before trusting it**: 20-30 tasks
-  across corpus repos, capability precision/recall computed from
-  execution (not hand-labeled ground truth -- M3 showed why). Not
-  started; `benchmark/` is scaffolded, not populated.
+- **v0.2-B -- Benchmark the compiler before trusting it**: 24-task corpus
+  built (4 families x 6 tasks, 3 repos, 2 languages); capability
+  precision/recall computed from execution, not hand-labeled ground
+  truth. In progress: 5/24 tasks run through the full pipeline -- see
+  "v0.2-B" above. Task success under generated authority hit the target
+  (80%, >=80%); capability recall did not (37%, target >=80%), with one
+  clean, legible miss (dependency-installation mechanics predicted
+  correctly, the source-file edit needed to use the dependency missed
+  entirely). Unnecessary high-risk grants and hard-ceiling violations
+  both 0. The vague/specific comparison confirmed authority width
+  tracks task specificity, measured on a real triad. 19 tasks and the
+  6-task causal-ablation subset remain.
 - **v0.2-C -- Escalation**: a denied-but-plausibly-legitimate operation
   becomes a narrow, human-in-the-loop grant request instead of a flat
-  denial. Not started.
+  denial. Not started -- per the plan, escalation design should come
+  from the miss distribution, and 5 tasks isn't enough of one yet.
 - **v0.2-D -- Revocation**: a temporary escalation grant expires instead
   of quietly becoming permanent task authority. Not started.

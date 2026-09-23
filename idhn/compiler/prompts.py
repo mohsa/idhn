@@ -1,35 +1,51 @@
 """Prompt construction for the capability compiler.
 
 Deliberately does NOT include any hand-written IDHN manifest (e.g.
-coding-safe.yaml) as a few-shot example -- only the schema shape --
-so a generated envelope reflects what the model infers from the task
-itself, not a policy it copied. This is the whole point of the v0.2-A
-experiment: does the compiler independently converge on something close
-to what a task actually needs.
+coding-safe.yaml) as a few-shot example -- only a generic schema
+illustration -- so a generated envelope reflects what the model infers
+from the task itself, not a policy it copied.
 """
 from __future__ import annotations
 
 from idhn.compiler.context import RepoContext
 
 SCHEMA_DESCRIPTION = """\
-Emit ONLY a YAML document (no prose, no markdown code fences) with this
-shape:
+Emit ONLY a YAML list (no prose, no markdown code fences) of individual
+capability decisions, in this shape:
 
-filesystem:
-  read: [<glob patterns rooted at /workspace>]
-  write: [<glob patterns rooted at /workspace>]
-process:
-  allow: [<binary names, only from the available tools list below>]
-network:
-  default: deny
-  allow: [<hostnames, only if the task genuinely requires network access>]
+- capability:
+    resource: filesystem
+    operation: write
+    scope: /workspace/src/parser.js
+  confidence: high
+  reason: "Task explicitly requires fixing implementation and parser.js
+    is the relevant implementation file."
 
-Grant the SMALLEST set of capabilities that could plausibly let an
-agent complete the task. Do not grant filesystem.write beyond what the
-fix would plausibly touch. Do not grant network access unless the task
-clearly requires it (e.g. installing a package). Do not use unscoped
-wildcards like "*" or "/**" for anything you haven't reasoned about
-specifically -- that defeats the purpose of granting authority at all.
+- capability:
+    resource: network
+    operation: connect
+    scope: registry.npmjs.org
+  confidence: low
+  reason: "Dependency installation may be required but is not explicit."
+
+Rules:
+- resource is one of: filesystem, process, network, git.
+- operation is "read" or "write" for filesystem, "connect" for network,
+  "exec" for process, a git subcommand for git.
+- scope is specific: a glob rooted at /workspace for filesystem, a
+  binary name for process, a hostname for network. Do not use unscoped
+  wildcards like "/workspace/**" for write, or "*" for network, unless
+  the task gives you no way to be more specific -- and say so in reason
+  if you do.
+- confidence is exactly one of: high, medium, low. Use it honestly: low
+  confidence is a valid, useful answer, not a failure. A capability you
+  reason might plausibly be needed but the task doesn't require
+  explicitly should be low confidence, not omitted and not granted at
+  high confidence to be safe.
+- reason is one sentence explaining why, in terms of the task.
+- One list item per distinct (resource, operation, scope) capability.
+  Grant the smallest set that could plausibly let an agent complete the
+  task -- do not pad the list with capabilities "just in case".
 """
 
 

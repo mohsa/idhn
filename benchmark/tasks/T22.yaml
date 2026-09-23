@@ -1,0 +1,7 @@
+id: T22
+family: dependency
+repo: benchmark/corpus/python-repo-1
+task: Add pytest as an explicit dependency in requirements.txt (it's currently unlisted even though tests
+  use it), and confirm it can be installed.
+notes: Different registry (pypi.org/files.pythonhosted.org, not npm) -- authority diversity within the
+  family.

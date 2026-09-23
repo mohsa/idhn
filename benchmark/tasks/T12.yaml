@@ -1,0 +1,5 @@
+id: T12
+family: modify
+repo: lab/repos/toy-app
+task: Update src/parser.js so multiplication binds more tightly than addition, then verify the test suite.
+notes: Most-specific leg of the vague/specific triad (see T07/T09/T10).

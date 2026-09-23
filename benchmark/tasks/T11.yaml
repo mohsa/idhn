@@ -1,0 +1,6 @@
+id: T11
+family: modify
+repo: benchmark/corpus/python-repo-1
+task: Rewrite unique_preserve_order to use a different approach that preserves order (not `set()`), and
+  verify all tests pass.
+notes: 'Expected: read + src/dedupe.py write + pytest.'

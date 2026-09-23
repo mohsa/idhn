@@ -1,0 +1,5 @@
+id: T10
+family: modify
+repo: lab/repos/toy-app
+task: Fix the failing tests.
+notes: Vague leg of the vague/specific triad (see T07/T09).

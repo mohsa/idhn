@@ -1,0 +1,6 @@
+id: T13
+family: test
+repo: lab/repos/toy-app
+task: Add a regression test to tests/parser.test.js that would have caught the operator-precedence bug,
+  without modifying src/.
+notes: 'Expected: read + tests/parser.test.js write + test. No src write.'

@@ -1,0 +1,6 @@
+id: T15
+family: test
+repo: benchmark/corpus/js-repo-2
+task: Add a test to tests/format.test.js covering an already-dedented (no leading whitespace) input, without
+  modifying src/.
+notes: 'Expected: read + tests/format.test.js write + test. No src write, no network.'

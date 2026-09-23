@@ -1,0 +1,5 @@
+id: T18
+family: test
+repo: lab/repos/toy-app
+task: Improve test coverage for parentheses handling in tests/parser.test.js, without modifying src/.
+notes: 'Expected: read + tests/parser.test.js write + test. No src write.'

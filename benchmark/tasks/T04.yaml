@@ -1,0 +1,5 @@
+id: T04
+family: diagnose
+repo: lab/repos/toy-app
+task: Something is wrong in this repository. Figure out what, and explain it. Do not modify any files.
+notes: Vague phrasing, same repo as T01 -- vague/specific variation inside the family.

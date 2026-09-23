@@ -1,0 +1,5 @@
+id: T09
+family: modify
+repo: lab/repos/toy-app
+task: Fix the operator precedence bug in src/parser.js's shunting-yard implementation.
+notes: Specific leg of the vague/specific triad (see T07/T10/T09).

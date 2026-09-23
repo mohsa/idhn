@@ -73,15 +73,16 @@ def validate(policy_path: str) -> None:
 @click.option("--run-id", "run_id", default=None, help="Reuse a specific run id instead of generating one.")
 @click.argument("task")
 def compile_cmd(workspace_path: str | None, run_id: str | None, task: str) -> None:
-    """Propose an initial capability envelope for a task (v0.2-A).
+    """Propose an initial capability envelope for a task (v0.2-A/B).
 
     Untrusted: this is a proposal, not a grant -- it's never wired into
     enforcement. Given only the task text and a compact repository
     summary (languages, file tree, manifest filenames -- never live
     filesystem access, never an example of a hand-written manifest),
     asks Codex (in one-shot mode, no workspace access of its own) for a
-    capability envelope, then strictly parses and structurally validates
-    whatever it produces.
+    list of capability decisions (each with confidence + reason), then
+    strictly parses, structurally validates, and budget-checks whatever
+    it produces.
     """
     workspace_dir = Path(workspace_path) if workspace_path else (REPO_ROOT / "lab" / "repos" / "toy-app")
     context = gather_context(workspace_dir)
@@ -104,19 +105,29 @@ def compile_cmd(workspace_path: str | None, run_id: str | None, task: str) -> No
     with (run_dir / "compile-raw-output.txt").open("w", encoding="utf-8") as f:
         f.write(result.raw_output)
 
-    if not result.ok:
+    if result.errors:
         click.echo("COMPILE FAILED -- output did not parse into a valid capability envelope:", err=True)
         for error in result.errors:
             click.echo(f"  - {error}", err=True)
         click.echo(f"\nraw output saved: {run_dir / 'compile-raw-output.txt'}", err=True)
         sys.exit(1)
 
+    decisions_data = [
+        {"capability": {"resource": d.resource, "operation": d.operation, "scope": d.scope}, "confidence": d.confidence, "reason": d.reason}
+        for d in result.decisions
+    ]
     envelope_path = run_dir / "compiled-envelope.yaml"
     with envelope_path.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(result.capabilities, f, sort_keys=False)
+        yaml.safe_dump(decisions_data, f, sort_keys=False)
 
-    click.echo(yaml.safe_dump(result.capabilities, sort_keys=False))
+    click.echo(yaml.safe_dump(decisions_data, sort_keys=False))
     click.echo(f"saved: {envelope_path}")
+
+    if result.budget_violations:
+        click.echo("\nBUDGET VIOLATIONS (rejected, not a valid proposal):", err=True)
+        for violation in result.budget_violations:
+            click.echo(f"  - {violation}", err=True)
+        sys.exit(1)
 
 
 @main.command()

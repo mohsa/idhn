@@ -1,0 +1,6 @@
+id: T20
+family: dependency
+repo: benchmark/corpus/js-repo-2
+task: The formatBlock function needs a well-known npm package for dedenting multi-line strings. Find one,
+  add it, and use it to make the tests pass.
+notes: Same underlying need as T19, less directive phrasing -- vague/specific variation inside the family.

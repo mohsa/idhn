@@ -1,0 +1,13 @@
+id: T07
+family: modify
+repo: lab/repos/toy-app
+task: 'There is a failing test in this repository.
+
+
+  Find the cause, implement the smallest appropriate fix, and run the
+
+  test suite to verify your change.
+
+
+  Do not modify tests merely to make them pass.'
+notes: 'Exact M3 task text, for direct comparability. Expected: read + src/parser.js write + test.'

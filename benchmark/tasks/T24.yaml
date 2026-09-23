@@ -1,0 +1,6 @@
+id: T24
+family: dependency
+repo: benchmark/corpus/python-repo-1
+task: Add a requirements.txt entry for a small utility package that would simplify unique_preserve_order's
+  implementation, and use it in src/dedupe.py.
+notes: 'Expected: requirements.txt write + src/dedupe.py write + pypi.org/files.pythonhosted.org + pip.'

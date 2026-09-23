@@ -1,4 +1,4 @@
-"""Offline capability compiler (v0.2-A).
+"""Offline capability compiler (v0.2-A/B).
 
 Given only a task description and limited, non-live repository context
 (idhn.compiler.context), proposes an initial capability envelope --
@@ -6,7 +6,8 @@ before the agent has run, before it has any real access.
 
 This module is untrusted, same as everything else under idhn/compiler/:
 its output is a proposal, checked by parser.py's strict
-parse-then-validate boundary, and not wired into enforcement (core/,
+parse-then-validate boundary and budget.py's deterministic rejection of
+unscoped-wildcard proposals, and not wired into enforcement (core/,
 enforcement/) at all yet. "The model may propose authority. It never
 grants authority."
 
@@ -19,10 +20,11 @@ idhn.runtime.docker.run_codex_prompt).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Callable
 
+from idhn.compiler.budget import check_budget
 from idhn.compiler.context import RepoContext
-from idhn.compiler.parser import CompilerOutputError, parse_capability_ir, validate_capability_ir
+from idhn.compiler.parser import CapabilityDecision, CompilerOutputError, parse_capability_ir, validate_capability_ir
 from idhn.compiler.prompts import build_prompt
 
 Completer = Callable[[str], str]
@@ -32,12 +34,13 @@ Completer = Callable[[str], str]
 class CompileResult:
     prompt: str
     raw_output: str
-    capabilities: dict[str, Any] | None
+    decisions: list[CapabilityDecision]
     errors: list[str]
+    budget_violations: list[str]
 
     @property
     def ok(self) -> bool:
-        return self.capabilities is not None and not self.errors
+        return not self.errors and not self.budget_violations
 
 
 def compile_task(task: str, context: RepoContext, complete: Completer) -> CompileResult:
@@ -45,12 +48,13 @@ def compile_task(task: str, context: RepoContext, complete: Completer) -> Compil
     raw_output = complete(prompt)
 
     try:
-        capabilities = parse_capability_ir(raw_output)
+        decisions = parse_capability_ir(raw_output)
     except CompilerOutputError as exc:
-        return CompileResult(prompt=prompt, raw_output=raw_output, capabilities=None, errors=[str(exc)])
+        return CompileResult(prompt=prompt, raw_output=raw_output, decisions=[], errors=[str(exc)], budget_violations=[])
 
-    errors = validate_capability_ir(capabilities)
+    errors = validate_capability_ir(decisions)
     if errors:
-        return CompileResult(prompt=prompt, raw_output=raw_output, capabilities=None, errors=errors)
+        return CompileResult(prompt=prompt, raw_output=raw_output, decisions=[], errors=errors, budget_violations=[])
 
-    return CompileResult(prompt=prompt, raw_output=raw_output, capabilities=capabilities, errors=[])
+    budget_violations = check_budget(decisions)
+    return CompileResult(prompt=prompt, raw_output=raw_output, decisions=decisions, errors=[], budget_violations=budget_violations)

@@ -1,0 +1,6 @@
+id: T03
+family: diagnose
+repo: benchmark/corpus/js-repo-2
+task: Explain why the test in this repository is failing, and what would need to be installed or changed
+  to fix it. Do not modify any files.
+notes: 'Expected: filesystem.read + process(npm). No write, no network (diagnose only, no install).'

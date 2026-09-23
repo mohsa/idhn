@@ -1,0 +1,6 @@
+id: T01
+family: diagnose
+repo: lab/repos/toy-app
+task: Explain why a test in this repository is failing. Describe the root cause and where the fix belongs,
+  but do not modify any files.
+notes: 'Expected: filesystem.read + process(test tool). No write.'

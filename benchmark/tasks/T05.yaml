@@ -1,0 +1,6 @@
+id: T05
+family: diagnose
+repo: benchmark/corpus/python-repo-1
+task: The `test_preserves_order` test in tests/test_dedupe.py expects unique_preserve_order to preserve
+  first-seen order, but the current implementation doesn't. Explain why, without modifying files.
+notes: Specific phrasing, same repo as T02 -- vague/specific variation inside the family.

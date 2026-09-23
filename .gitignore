@@ -9,4 +9,5 @@ build/
 runs/
 /.env
 node_modules/
+policies/generated/
 .DS_Store

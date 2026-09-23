@@ -1,0 +1,5 @@
+id: T17
+family: test
+repo: benchmark/corpus/python-repo-1
+task: Add a test verifying unique_preserve_order handles a list of strings, without modifying src/.
+notes: 'Expected: read + tests/test_dedupe.py write + pytest. No src write.'

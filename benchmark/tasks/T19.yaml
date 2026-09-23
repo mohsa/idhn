@@ -1,0 +1,5 @@
+id: T19
+family: dependency
+repo: benchmark/corpus/js-repo-2
+task: Add the missing npm dependency needed by src/format.js and make the tests pass.
+notes: 'Expected: read + package.json write + src/format.js write + registry.npmjs.org + npm.'

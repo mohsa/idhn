@@ -1,0 +1,7 @@
+id: T23
+family: dependency
+repo: benchmark/corpus/js-repo-2
+task: Update package.json's test script to also lint the code using a common JS linter, adding it as a
+  dependency.
+notes: 'Expected: package.json write + registry.npmjs.org + npm. Broader/vaguer than T19/T20 (agent picks
+  the linter).'

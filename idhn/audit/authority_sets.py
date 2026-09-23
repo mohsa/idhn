@@ -1,0 +1,136 @@
+"""Authority-set arithmetic for v0.2-B: I (infrastructure), P
+(compiler-predicted), E (exercised), M (missing), U (unnecessary).
+
+The reason this exists instead of just diffing against one hand-written
+manifest (what v0.2-A did): the compiler should be judged on whether it
+predicted what the TASK needed, not penalized for not predicting
+infrastructure Codex needs regardless of task (chatgpt.com, its own
+launcher binaries) -- that's a separate, fixed set, not something task
+reasoning should have to rediscover every time. Keeping I separate from
+P is what makes "M = E - (I union P)" a meaningful signal about the
+compiler rather than a repeat of the same infrastructure-blindness
+finding from v0.2-A's single data point.
+
+A capability is a (resource, operation, scope) tuple. Set membership
+for comparison purposes is glob-aware (a granted "/workspace/src/**"
+covers an exercised "/workspace/src/parser.js"), not exact string
+equality -- see `covers`.
+"""
+from __future__ import annotations
+
+import json
+from fnmatch import fnmatch
+from pathlib import Path
+
+from idhn.audit.codex_events import parse_codex_events
+from idhn.enforcement.process import AGENT_INFRASTRUCTURE_BINARIES
+
+Capability = tuple[str, str, str]
+
+# Fixed, not task-conditioned -- what an agent needs to run at all,
+# independent of what any task asks for. See idhn.enforcement.process
+# (process side) and the M3 finding that motivated adding chatgpt.com to
+# every example manifest (network side).
+INFRASTRUCTURE_NETWORK_HOSTS = ["chatgpt.com", "*.chatgpt.com", "*.oaiusercontent.com"]
+
+
+def infrastructure_authority() -> set[Capability]:
+    items: set[Capability] = {("process", "exec", binary) for binary in AGENT_INFRASTRUCTURE_BINARIES}
+    items |= {("network", "connect", host) for host in INFRASTRUCTURE_NETWORK_HOSTS}
+    return items
+
+
+def covers(granted: Capability, used: Capability) -> bool:
+    g_resource, g_operation, g_scope = granted
+    u_resource, u_operation, u_target = used
+    if g_resource != u_resource or g_operation != u_operation:
+        return False
+    if g_resource == "process":
+        return g_scope == u_target  # exact binary name, no glob semantics
+    return fnmatch(u_target, g_scope)
+
+
+def compute_missing(exercised: set[Capability], granted: set[Capability]) -> set[Capability]:
+    """M = E - (I union P): exercised authority no granted capability covers."""
+    return {e for e in exercised if not any(covers(g, e) for g in granted)}
+
+
+def compute_unnecessary(predicted: set[Capability], exercised: set[Capability]) -> set[Capability]:
+    """U = P - E: predicted grants that never covered anything exercised.
+
+    Not automatically "wrong" -- a legitimate grant simply might not be
+    exercised in one particular run (e.g. a deny/read grant for a file
+    that turned out not to need touching). It's the signal worth
+    inspecting, especially when it's a broad or high-risk scope; see
+    idhn.core.risk for the classification used to prioritize which U
+    entries matter.
+    """
+    return {p for p in predicted if not any(covers(p, e) for e in exercised)}
+
+
+def exercised_from_run(run_dir: Path) -> set[Capability]:
+    """E for one run: process/filesystem usage from Codex's own --json
+    trace (idhn.audit.codex_events -- same lower-bound caveat as
+    everywhere else it's used: an inline-edit write can go unrecorded),
+    plus every network target the gateway actually allowed through
+    (events.jsonl). A denied network attempt is NOT exercised authority
+    -- it's evidence of an attempt, which is a different question
+    (what the compiler predicted vs. what got blocked) than what
+    authority the run actually used.
+    """
+    run_dir = Path(run_dir)
+    exercised: set[Capability] = set()
+
+    for record in parse_codex_events(run_dir / "codex-events.jsonl"):
+        if record.get("succeeded") is False:
+            continue
+        exercised.add((record["resource"], record["operation"], record["target"]))
+
+    events_path = run_dir / "events.jsonl"
+    if events_path.exists():
+        for line in events_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            event = json.loads(line)
+            action = event.get("action", {}) or {}
+            if action.get("resource") == "network" and event.get("decision") == "allow":
+                exercised.add(("network", "connect", action.get("target", "")))
+
+    return exercised
+
+
+def predicted_from_decisions(decisions) -> set[Capability]:
+    """P from a list of idhn.compiler.parser.CapabilityDecision."""
+    return {d.as_tuple() for d in decisions}
+
+
+def to_manifest_capabilities(capabilities: set[Capability]) -> dict:
+    """Collapse a capability set (e.g. I union P) into the nested
+    filesystem/process/network shape idhn.core.manifest.Manifest and
+    idhn.enforcement expect, so "run the task actually constrained by
+    what the compiler proposed" can reuse the real enforcement path
+    (idhn.runtime.docker.DockerRuntime, same as every other real run in
+    this codebase) instead of a separate simulated one.
+    """
+    result: dict = {
+        "filesystem": {"read": [], "write": [], "deny": ["/workspace/.env", "/workspace/.github/**", "/home/**", "/root/**"]},
+        "process": {"allow": []},
+        "network": {"default": "deny", "allow": []},
+        "git": {"allow": ["status", "diff"], "deny": ["push"]},
+        "secrets": {"default": "deny"},
+    }
+    for resource, operation, scope in sorted(capabilities):
+        if resource == "filesystem" and operation in ("read", "write"):
+            bucket = result["filesystem"][operation]
+        elif resource == "process":
+            bucket = result["process"]["allow"]
+        elif resource == "network":
+            bucket = result["network"]["allow"]
+        elif resource == "git":
+            bucket = result["git"]["allow"]
+        else:
+            continue
+        if scope not in bucket:
+            bucket.append(scope)
+    return result

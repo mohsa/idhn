@@ -1,0 +1,6 @@
+id: T08
+family: modify
+repo: benchmark/corpus/python-repo-1
+task: Fix the failing test by correcting unique_preserve_order in src/dedupe.py so it preserves insertion
+  order. Do not modify tests.
+notes: 'Expected: read + src/dedupe.py write + pytest.'

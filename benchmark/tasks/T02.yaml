@@ -1,0 +1,6 @@
+id: T02
+family: diagnose
+repo: benchmark/corpus/python-repo-1
+task: Explain why a test in this repository is failing. Describe the root cause and where the fix belongs,
+  but do not modify any files.
+notes: 'Expected: filesystem.read + process(pytest). No write.'

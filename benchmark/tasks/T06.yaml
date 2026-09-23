@@ -1,0 +1,5 @@
+id: T06
+family: diagnose
+repo: benchmark/corpus/js-repo-2
+task: Explain what's missing from package.json that's causing the test to fail. Do not modify any files.
+notes: Narrower framing than T03 -- points at package.json specifically.

@@ -1,0 +1,6 @@
+id: T16
+family: test
+repo: lab/repos/toy-app
+task: The test suite doesn't cover division. Add a test for it in tests/parser.test.js, without modifying
+  src/.
+notes: 'Expected: read + tests/parser.test.js write + test. No src write.'

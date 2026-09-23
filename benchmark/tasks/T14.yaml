@@ -1,0 +1,6 @@
+id: T14
+family: test
+repo: benchmark/corpus/python-repo-1
+task: Add a test to tests/test_dedupe.py covering a case with three or more duplicate values, without
+  modifying src/.
+notes: 'Expected: read + tests/test_dedupe.py write + pytest. No src write.'

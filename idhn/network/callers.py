@@ -7,6 +7,15 @@ container apart from an internal service like fetch-service. A header
 would be spoofable by the agent itself; a TCP peer address on a network
 the agent has no raw-socket access to (it runs with cap_drop: ALL) is
 not.
+
+LAB_ONLY_TRUST_MECHANISM: this is sound for a single-host Docker Compose
+lab, not a production identity boundary. It trusts "whichever process
+currently holds this container's IP", which is fine when we built and
+control every container on this network, but it is not workload
+identity, a mutually authenticated channel, or a signed execution
+context. Don't let this quietly become how IDHN attributes callers
+outside this lab -- that's real work for a later milestone, not a
+one-line swap.
 """
 from __future__ import annotations
 

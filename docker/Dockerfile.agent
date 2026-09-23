@@ -18,6 +18,9 @@ RUN pip3 install --no-cache-dir --break-system-packages pytest
 RUN npm install -g @openai/codex
 
 RUN useradd --create-home --shell /bin/bash agent
+# Mount point for the host's ~/.codex/auth.json (read-only, single file --
+# never the whole ~/.codex or host home directory). See docker/compose.yaml.
+RUN mkdir -p /home/agent/.codex && chown agent:agent /home/agent/.codex
 WORKDIR /workspace
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh

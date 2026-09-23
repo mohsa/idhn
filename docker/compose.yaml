@@ -67,6 +67,16 @@ services:
       - fetch-service
     volumes:
       - ../lab/repos/toy-app:/workspace
+      # Codex's ChatGPT-account credentials, mounted read-only as a single
+      # file -- never the whole host ~/.codex or home directory. Requires
+      # `codex login` (or `codex login --device-auth`) to have been run on
+      # the host first. See README.md's "Codex authentication" section.
+      - ${IDHN_CODEX_AUTH_PATH}:/home/agent/.codex/auth.json:ro
+      # Same run directory the gateway writes events.jsonl to -- the agent
+      # writes codex's own --json stream and before/after test logs here
+      # (see idhn/runtime/docker.py) so `idhn m3-report` can read them all
+      # from one place afterward.
+      - ${IDHN_RUN_DIR:-./runs/local}:/run
     environment:
       HTTP_PROXY: http://gateway:8080
       HTTPS_PROXY: http://gateway:8080

@@ -1,0 +1,19 @@
+# M3-A baseline ONLY: Codex in the same disposable container and toy
+# repo as every other run, but with no IDHN gateway, no network
+# isolation, and no policy at all -- direct internet access via the
+# default bridge network. This exists to prove the task is solvable
+# without IDHN in the loop, so the constrained runs mean something.
+# Never reuse this topology for anything else.
+
+services:
+  agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agent
+    volumes:
+      - ../lab/repos/toy-app:/workspace
+      - ${IDHN_CODEX_AUTH_PATH}:/home/agent/.codex/auth.json:ro
+      - ${IDHN_RUN_DIR:-./runs/local}:/run
+    environment:
+      IDHN_TASK: ${IDHN_TASK:-}
+      IDHN_AGENT_COMMAND: ${IDHN_AGENT_COMMAND:-}

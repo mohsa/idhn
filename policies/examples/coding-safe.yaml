@@ -26,6 +26,13 @@ capabilities:
     default: deny
 
     allow:
+      # Codex's own backend -- required for the agent to function at all
+      # (model calls), independent of anything the task itself needs.
+      # Discovered empirically: without this, `codex exec` fails outright
+      # (connection errors to chatgpt.com), which is a legitimate finding
+      # in its own right -- IDHN makes "let the agent run at all" an
+      # explicit, denyable grant like everything else, not implicit.
+      - "chatgpt.com"
       - "registry.npmjs.org"
 
   process:

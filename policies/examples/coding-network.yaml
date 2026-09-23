@@ -32,6 +32,8 @@ capabilities:
     default: deny
 
     allow:
+      # Required for Codex itself to function -- see coding-safe.yaml.
+      - "chatgpt.com"
       - "registry.npmjs.org"
       - "pypi.org"
       - "files.pythonhosted.org"

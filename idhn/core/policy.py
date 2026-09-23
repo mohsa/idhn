@@ -17,6 +17,23 @@ def _matches_any(value: str, patterns: list[str]) -> bool:
     return any(fnmatch(value, pattern) for pattern in patterns)
 
 
+def flatten_category_allowlist(allow: object) -> list[str]:
+    """`process.allow` (and `.deny`) can be a flat list or a dict of named
+    categories (discovery/inspection/development/...). Categories are for
+    human readability only -- v0.1 does nothing semantic with the category
+    name, it just flattens either shape to the actual set of binary names.
+    Shared with idhn.enforcement.process, which builds the PATH-restricted
+    shim directory from the same flattened set, so the declared policy and
+    the mechanism enforcing it can't drift apart.
+    """
+    if isinstance(allow, dict):
+        names: list[str] = []
+        for binaries in allow.values():
+            names.extend(binaries or [])
+        return sorted(set(names))
+    return sorted(set(allow or []))
+
+
 class PolicyEngine:
     """Evaluates ActionRequests against a single manifest, deterministically."""
 
@@ -93,7 +110,13 @@ class PolicyEngine:
 
     def _evaluate_process(self, request: ActionRequest, context: ExecutionContext) -> PolicyDecision:
         proc = self.manifest.capabilities.get("process", {}) or {}
-        return self._evaluate_named_list(request, proc, "process")
+        allow = flatten_category_allowlist(proc.get("allow", []))
+        deny = flatten_category_allowlist(proc.get("deny", []))
+        if request.target in deny:
+            return self._deny(request, "explicit_deny")
+        if request.target in allow:
+            return self._allow(request, "matched_allow_list")
+        return self._deny(request, "process_not_in_allow_list")
 
     def _evaluate_git(self, request: ActionRequest, context: ExecutionContext) -> PolicyDecision:
         git = self.manifest.capabilities.get("git", {}) or {}

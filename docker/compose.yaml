@@ -84,6 +84,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       IDHN_TASK: ${IDHN_TASK:-}
       IDHN_AGENT_COMMAND: ${IDHN_AGENT_COMMAND:-}
+      IDHN_ALLOWED_BINARIES: ${IDHN_ALLOWED_BINARIES:-}
     cap_drop:
       - ALL
     security_opt:

@@ -32,17 +32,51 @@ capabilities:
       # (connection errors to chatgpt.com), which is a legitimate finding
       # in its own right -- IDHN makes "let the agent run at all" an
       # explicit, denyable grant like everything else, not implicit.
+      # *.chatgpt.com and *.oaiusercontent.com also observed and denied
+      # in a real run (ab.chatgpt.com, sdmntprsouthcentralus.oaiuser
+      # content.com) -- OpenAI's own infrastructure, not task-relevant
+      # risk, added after seeing the actual denied hosts rather than
+      # guessed in advance.
       - "chatgpt.com"
+      - "*.chatgpt.com"
+      - "*.oaiusercontent.com"
       - "registry.npmjs.org"
 
   process:
 
+    # Categories are for human readability -- v0.1 flattens them to one
+    # allow-set (idhn.core.policy.flatten_category_allowlist) and does
+    # nothing semantic with the category name yet. `discovery` and
+    # `inspection` weren't in the original hand-written list -- M3's real
+    # run showed Codex genuinely needs pwd/ls/cat/rg just to explore the
+    # repo before touching anything task-specific, and IDHN denying those
+    # would have broken a legitimate run, not stopped an illegitimate one.
+    # `codex` and `node` (as Codex's own launcher) are always available
+    # regardless of what's declared here -- see
+    # idhn.enforcement.process.AGENT_INFRASTRUCTURE_BINARIES -- the same
+    # "let the agent run at all" idea as chatgpt.com in network.allow,
+    # just enforced in code instead of requiring every manifest to
+    # remember it, since it grants local PATH visibility rather than
+    # network reach.
     allow:
-      - "python"
-      - "pytest"
-      - "git"
-      - "node"
-      - "npm"
+
+      discovery:
+        - "pwd"
+        - "ls"
+        - "find"
+
+      inspection:
+        - "cat"
+        - "rg"
+
+      development:
+        - "python3"
+        - "pytest"
+        - "node"
+        - "npm"
+
+      version_control:
+        - "git"
 
   git:
 

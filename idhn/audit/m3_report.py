@@ -6,12 +6,19 @@ did it actually use getting there?") that needs task-completion and
 before/after test counts, not just an allow/deny tally.
 
 Two data sources, kept honestly separate:
-  - events.jsonl: gateway-observed, policy-DECIDED network events. Live
-    enforcement, real ALLOW/DENY.
+  - events.jsonl: gateway-observed, policy-DECIDED network events, from
+    idhn/network/proxy.py. Enforcement happens BEFORE the connection is
+    allowed through -- a denied request never reaches its target.
   - codex-events.jsonl: Codex's own --json tool-call stream, parsed by
-    idhn.audit.codex_events. Observed only -- v0.1 has no live
-    interception for filesystem/process, so these numbers describe what
-    Codex did, not what IDHN allowed or blocked.
+    idhn.audit.codex_events. Filesystem/process enforcement (mount
+    layout + PATH restriction, see enforcement/filesystem.py and
+    enforcement/process.py) happens as a structural property of the
+    container Codex is already running in, not a check IDHN runs before
+    each attempt -- so this module re-evaluates each observed action
+    against policy AFTER the fact and cross-checks it against whether the
+    action actually succeeded (exit code / completion status) to tell a
+    correctly-blocked attempt from a real enforcement gap. See
+    _process_overreach.
 
 CapabilityUsage (granted vs. exercised vs. unused) is deliberately just
 counters over sets here, per the design note that spawned it: don't
@@ -29,6 +36,7 @@ from idhn.audit.codex_events import parse_codex_events
 from idhn.core.manifest import Manifest
 from idhn.core.models import ActionRequest, Decision, ExecutionContext
 from idhn.core.policy import PolicyEngine
+from idhn.enforcement.process import allowed_binaries as enforced_process_allowlist
 
 # Node's test runner uses the "spec" reporter (ℹ pass N) on a TTY but
 # falls back to TAP (# pass N) once stdout is redirected to a file, which
@@ -80,9 +88,11 @@ def _granted_capabilities(capabilities: dict[str, Any]) -> set[tuple[str, str, s
     net = capabilities.get("network", {}) or {}
     for pattern in net.get("allow", []) or []:
         granted.add(("network", "connect", pattern))
-    proc = capabilities.get("process", {}) or {}
-    for pattern in proc.get("allow", []) or []:
-        granted.add(("process", "exec", pattern))
+    # Use the same flattening + infra-inclusion enforcement actually uses
+    # (categories -> flat set, plus codex/node) so this count can't drift
+    # from what's really on the agent's PATH.
+    for binary in enforced_process_allowlist(capabilities):
+        granted.add(("process", "exec", binary))
     git = capabilities.get("git", {}) or {}
     for pattern in git.get("allow", []) or []:
         granted.add(("git", "run", pattern))
@@ -90,10 +100,17 @@ def _granted_capabilities(capabilities: dict[str, Any]) -> set[tuple[str, str, s
 
 
 def _exercised_capabilities(
-    granted: set[tuple[str, str, str]], usage_records: list[dict[str, str]]
+    granted: set[tuple[str, str, str]], usage_records: list[dict[str, Any]]
 ) -> set[tuple[str, str, str]]:
     exercised: set[tuple[str, str, str]] = set()
     for record in usage_records:
+        # A record that we know failed (succeeded is False) wasn't a
+        # successful use of the capability, even if it matches a grant --
+        # don't count an attempt as "exercised". succeeded is True or None
+        # (no signal, e.g. every network record, which we only ever see
+        # once the gateway has already allowed it through) both count.
+        if record.get("succeeded") is False:
+            continue
         for grant in granted:
             resource, operation, pattern = grant
             if record["resource"] == resource and record["operation"] == operation and fnmatch(record["target"], pattern):
@@ -101,27 +118,46 @@ def _exercised_capabilities(
     return exercised
 
 
-def _shadow_violations(manifest: Manifest, usage_records: list[dict[str, str]]) -> list[dict[str, str]]:
+def _process_overreach(manifest: Manifest, usage_records: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     """Re-check observed filesystem/process usage against the SAME policy
-    engine the gateway uses for network -- but after the fact, since v0.1
-    doesn't live-block these resources. This exists so an agent exceeding
-    its declared filesystem/process authority shows up somewhere instead
-    of silently not counting as a violation just because nothing stopped
-    it in real time. A non-empty result here is a real finding: it means
-    the manifest under-declared what the agent actually needed (or the
-    agent overreached), not that IDHN caught and blocked anything.
+    engine the gateway uses for network -- but after the fact for these
+    two resources, since only network is live-checked before the action
+    happens (see enforcement/filesystem.py and enforcement/process.py for
+    what v0.1's real, live mechanisms are and their limits).
+
+    Splits denied-by-policy records into what actually happened, using
+    codex_events.py's exit_code-derived `succeeded` field -- this
+    distinction matters now that filesystem/process enforcement is
+    partially real:
+      - blocked: policy denies it AND it failed. The mechanism worked --
+        this is the success story, not a problem.
+      - residual_gap: policy denies it AND it succeeded anyway. A real
+        finding: the mechanism has a hole (e.g. the documented
+        absolute-path bypass of PATH restriction) or the manifest is
+        wrong about what's actually reachable.
+      - unknown: policy denies it and we have no success/failure signal
+        for it. Reported rather than hidden -- treat as "needs a look",
+        not as either of the above.
     """
     engine = PolicyEngine(manifest)
     context = ExecutionContext(run_id="shadow-check", agent_id="codex", task_id=manifest.task.id)
-    violations = []
+    result: dict[str, list[dict[str, Any]]] = {"blocked": [], "residual_gap": [], "unknown": []}
     for record in usage_records:
         if record["resource"] not in ("filesystem", "process"):
             continue
         request = ActionRequest(resource=record["resource"], action=record["operation"], target=record["target"])
         decision = engine.evaluate(request, context)
-        if decision.decision != Decision.ALLOW:
-            violations.append({**record, "reason": decision.reason})
-    return violations
+        if decision.decision == Decision.ALLOW:
+            continue
+        entry = {**record, "reason": decision.reason}
+        succeeded = record.get("succeeded")
+        if succeeded is False:
+            result["blocked"].append(entry)
+        elif succeeded is True:
+            result["residual_gap"].append(entry)
+        else:
+            result["unknown"].append(entry)
+    return result
 
 
 def build_m3_report(run_dir: Path, manifest: Manifest | None) -> dict[str, Any]:
@@ -168,7 +204,7 @@ def build_m3_report(run_dir: Path, manifest: Manifest | None) -> dict[str, Any]:
 
     granted = _granted_capabilities(manifest.capabilities) if manifest is not None else set()
     exercised = _exercised_capabilities(granted, network_usage + codex_usage)
-    shadow_violations = _shadow_violations(manifest, codex_usage) if manifest is not None else []
+    overreach = _process_overreach(manifest, codex_usage) if manifest is not None else {"blocked": [], "residual_gap": [], "unknown": []}
 
     return {
         "run_id": run_dir.name,
@@ -187,7 +223,9 @@ def build_m3_report(run_dir: Path, manifest: Manifest | None) -> dict[str, Any]:
         "capabilities_unused": len(granted) - len(exercised),
         "escalations": escalations,
         "policy_violations": direct_denied + transitive_denied,
-        "shadow_violations": shadow_violations,
+        "blocked_attempts": overreach["blocked"],
+        "residual_gaps": overreach["residual_gap"],
+        "unknown_outcome_attempts": overreach["unknown"],
         "has_manifest": manifest is not None,
     }
 
@@ -248,12 +286,24 @@ def render_m3_report(report: dict[str, Any]) -> str:
 
     lines.append(f"Escalations               {report['escalations']}")
     lines.append("")
-    lines.append(f"Policy violations         {report['policy_violations']}  (live-enforced: network only)")
 
-    shadow = report.get("shadow_violations") or []
+    blocked = report.get("blocked_attempts") or []
+    residual = report.get("residual_gaps") or []
+    unknown = report.get("unknown_outcome_attempts") or []
+
+    lines.append("Denied and stayed denied")
+    lines.append(f"  network (live pre-check)          {report['policy_violations']}")
+    lines.append(f"  filesystem/process (blocked mid-attempt)  {len(blocked)}")
     lines.append("")
-    lines.append(f"Unenforced overreach      {len(shadow)}  (filesystem/process: observed, not blocked in v0.1)")
-    for v in shadow:
+
+    lines.append(f"Residual gaps             {len(residual)}  (denied by policy but succeeded anyway -- a real finding)")
+    for v in residual:
         lines.append(f"  {v['resource']}.{v['operation']:<6} {v['target']}  ({v['reason']})")
+
+    if unknown:
+        lines.append("")
+        lines.append(f"Unknown outcome           {len(unknown)}  (denied by policy, no success/failure signal available)")
+        for v in unknown:
+            lines.append(f"  {v['resource']}.{v['operation']:<6} {v['target']}  ({v['reason']})")
 
     return "\n".join(lines)

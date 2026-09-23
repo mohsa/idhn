@@ -7,6 +7,6 @@ dist/
 build/
 .pytest_cache/
 runs/
-.env
+/.env
 node_modules/
 .DS_Store

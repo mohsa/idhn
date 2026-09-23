@@ -40,6 +40,9 @@ def _first(d: dict[str, Any], *keys: str) -> Any:
     return None
 
 
+_TRAILING_SHELL_PUNCTUATION = ";&|()"
+
+
 def _extract_binary(command: str) -> str | None:
     """Return the binary actually run, unwrapping codex's `bash -lc "..."`.
 
@@ -49,6 +52,11 @@ def _extract_binary(command: str) -> str | None:
     nothing ever matches a `process.allow` grant like "git" or "node".
     Unwrap one level and normalize to a basename so "/usr/bin/git",
     "./git", and "git" all match the same grant.
+
+    shlex doesn't understand shell control operators (`;`, `&&`, ...), so
+    "pwd; rg --files" tokenizes as ["pwd;", "rg", ...] -- strip trailing
+    punctuation off the first inner token rather than reporting "pwd;" as
+    a distinct, never-granted "binary" (observed directly in a live run).
     """
     try:
         parts = shlex.split(command)
@@ -65,17 +73,43 @@ def _extract_binary(command: str) -> str | None:
             inner_parts = inner.split()
         if not inner_parts:
             return None
-        return Path(inner_parts[0]).name
+        name = inner_parts[0].rstrip(_TRAILING_SHELL_PUNCTUATION)
+        return Path(name).name if name else None
 
-    return Path(parts[0]).name
+    name = parts[0].rstrip(_TRAILING_SHELL_PUNCTUATION)
+    return Path(name).name if name else None
 
 
-def parse_codex_events(path: Path) -> list[dict[str, str]]:
-    """Return [{"resource", "operation", "target"}, ...] usage records."""
+def _succeeded(item: dict[str, Any]) -> bool | None:
+    """Best-effort outcome for a command_execution/file_change item.
+
+    True/False when we have real signal (exit_code, or an explicit
+    failure status); None when we don't know -- callers should treat
+    None as "can't confirm either way", not as success.
+    """
+    exit_code = item.get("exit_code")
+    if isinstance(exit_code, int):
+        return exit_code == 0
+    status = item.get("status")
+    if status in ("failed", "error"):
+        return False
+    if status == "completed":
+        return True
+    return None
+
+
+def parse_codex_events(path: Path) -> list[dict[str, Any]]:
+    """Return [{"resource", "operation", "target", "succeeded"}, ...].
+
+    `succeeded` is True/False/None (see _succeeded) -- callers deciding
+    whether an observed action is a real enforcement gap (succeeded
+    despite being policy-denied) versus a correctly-blocked attempt
+    (failed) need this, not just what was attempted.
+    """
     if not path.exists():
         return []
 
-    records: list[dict[str, str]] = []
+    records: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -100,9 +134,17 @@ def parse_codex_events(path: Path) -> list[dict[str, str]]:
                 if isinstance(command, str) and command.strip():
                     binary = _extract_binary(command.strip())
                     if binary:
-                        records.append({"resource": "process", "operation": "exec", "target": binary})
+                        records.append(
+                            {
+                                "resource": "process",
+                                "operation": "exec",
+                                "target": binary,
+                                "succeeded": _succeeded(item),
+                            }
+                        )
             elif item_type == "file_change":
                 changes = _first(item, "changes", "files") or []
+                succeeded = _succeeded(item)
                 if isinstance(changes, list):
                     for change in changes:
                         if not isinstance(change, dict):
@@ -110,7 +152,12 @@ def parse_codex_events(path: Path) -> list[dict[str, str]]:
                         change_path = _first(change, "path", "file", "filename")
                         if change_path:
                             records.append(
-                                {"resource": "filesystem", "operation": "write", "target": str(change_path)}
+                                {
+                                    "resource": "filesystem",
+                                    "operation": "write",
+                                    "target": str(change_path),
+                                    "succeeded": succeeded,
+                                }
                             )
 
     return records

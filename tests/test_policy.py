@@ -89,6 +89,22 @@ def test_process_not_in_allow_list_denied():
     assert decision.decision == Decision.DENY
 
 
+def test_process_allow_accepts_category_dict():
+    manifest = make_manifest(
+        process={
+            "allow": {
+                "discovery": ["pwd", "ls"],
+                "development": ["python3", "node"],
+            }
+        }
+    )
+    engine = PolicyEngine(manifest)
+    allowed = engine.evaluate(ActionRequest(resource="process", action="exec", target="pwd"), DIRECT)
+    assert allowed.decision == Decision.ALLOW
+    denied = engine.evaluate(ActionRequest(resource="process", action="exec", target="curl"), DIRECT)
+    assert denied.decision == Decision.DENY
+
+
 def test_git_push_denied_even_though_not_requested_via_deny_list_alone():
     manifest = make_manifest(git={"allow": ["status", "diff"], "deny": ["push"]})
     engine = PolicyEngine(manifest)

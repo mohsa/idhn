@@ -40,6 +40,7 @@ class DockerRuntime(Runtime):
                 "IDHN_RUN_DIR": str(run_dir.resolve()),
                 "IDHN_POLICY_FILE": self._policy_relpath(manifest),
                 "IDHN_TASK": manifest.task.description,
+                "IDHN_TASK_ID": manifest.task.id,
                 "IDHN_AGENT_COMMAND": " ".join(command),
                 "IDHN_CPU": str(manifest.limits.get("cpu", 2)),
                 "IDHN_MEMORY": str(manifest.limits.get("memory", "4g")),

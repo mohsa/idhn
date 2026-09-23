@@ -33,17 +33,24 @@ def build_report(run_dir: Path, run_id: str) -> dict[str, Any]:
         "secrets": Counter(),
     }
     blocked: list[dict[str, Any]] = []
+    transitive_blocked: list[dict[str, Any]] = []
     escalations = 0
 
     for event in events:
-        resource = event.get("resource")
-        action = event.get("action")
+        action = event.get("action", {}) or {}
+        resource = action.get("resource")
+        operation = action.get("operation")
         decision = event.get("decision")
-        key = f"{resource}_{action}" if resource == "filesystem" else resource
+        provenance = event.get("provenance", {}) or {}
+
+        key = f"{resource}_{operation}" if resource == "filesystem" else resource
         if key in tallies:
             tallies[key][decision] += 1
+
         if decision == "deny":
             blocked.append(event)
+            if not provenance.get("direct", True):
+                transitive_blocked.append(event)
         elif decision == "escalate":
             escalations += 1
 
@@ -61,6 +68,7 @@ def build_report(run_dir: Path, run_id: str) -> dict[str, Any]:
         "task": task_description,
         "tallies": {k: dict(v) for k, v in tallies.items()},
         "blocked": blocked,
+        "transitive_blocked": transitive_blocked,
         "escalations": escalations,
         "event_count": len(events),
     }
@@ -98,9 +106,17 @@ def render_text_report(report: dict[str, Any]) -> str:
     if report["blocked"]:
         for event in report["blocked"]:
             ts = (event.get("timestamp") or "")[11:16]
-            lines.append(f"{ts}  {event.get('action', '').upper():<8} {event.get('target', '')}")
+            action = event.get("action", {}) or {}
+            via = (event.get("provenance", {}) or {}).get("via") or []
+            via_suffix = f"  (via {' -> '.join(via)})" if via else ""
+            lines.append(f"{ts}  {action.get('operation', '').upper():<8} {action.get('target', '')}{via_suffix}")
     else:
         lines.append("none")
+    lines.append("")
+
+    lines.append("TRANSITIVE ESCAPES BLOCKED")
+    lines.append("")
+    lines.append(str(len(report["transitive_blocked"])))
     lines.append("")
 
     lines.append("ESCALATIONS")

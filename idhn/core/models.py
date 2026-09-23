@@ -5,7 +5,7 @@ runtime -- it is the vocabulary the policy engine speaks.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -48,3 +48,26 @@ class PolicyDecision:
 class Task:
     id: str
     description: str
+
+
+@dataclass
+class ExecutionContext:
+    """Who is asking, for what task, and through what chain of delegation.
+
+    v0.1 threads this through every evaluate() call but only one resource
+    type (network) actually branches on it so far -- see
+    PolicyEngine._evaluate_network. The rest is foundation for the
+    effective-authority question: whether the same request should be
+    decided differently depending on who's really asking and how they got
+    here, not just what they're asking for.
+    """
+
+    run_id: str
+    agent_id: str
+    task_id: str
+    parent_action_id: str | None = None
+    delegation_chain: list[str] = field(default_factory=list)
+
+    @property
+    def direct(self) -> bool:
+        return not self.delegation_chain

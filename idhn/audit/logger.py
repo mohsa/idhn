@@ -10,7 +10,7 @@ import json
 import threading
 from pathlib import Path
 
-from idhn.core.models import PolicyDecision
+from idhn.core.models import ExecutionContext, PolicyDecision
 from idhn.runtime.events import RuntimeEvent
 
 
@@ -27,5 +27,5 @@ class AuditLogger:
             with self._path.open("a", encoding="utf-8") as f:
                 f.write(line + "\n")
 
-    def log_decision(self, execution_id: str, agent: str, decision: PolicyDecision) -> None:
-        self.log_event(RuntimeEvent.from_policy_decision(execution_id, agent, decision))
+    def log_decision(self, decision: PolicyDecision, context: ExecutionContext) -> None:
+        self.log_event(RuntimeEvent.from_policy_decision(decision, context))

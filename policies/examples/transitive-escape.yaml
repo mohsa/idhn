@@ -1,0 +1,66 @@
+version: "0.1"
+
+# M2 scenario: the agent is allowed to reach fetch-service, and
+# fetch-service is allowed to fetch registry.npmjs.org on the agent's
+# behalf -- but nothing else. This manifest is what proves an allowed
+# capability (reach fetch-service) can't be turned into an unauthorized
+# one (fetch arbitrary URLs through it). See
+# idhn/core/policy.py:_evaluate_transitive_network.
+
+task:
+  id: "m2-transitive-001"
+  description: "Attempt to reach a denied domain directly and via fetch-service"
+
+capabilities:
+
+  filesystem:
+
+    read:
+      - "/workspace/**"
+
+    write: []
+
+    deny:
+      - "/workspace/.env"
+      - "/home/**"
+      - "/root/**"
+
+  network:
+
+    default: deny
+
+    allow:
+      - "registry.npmjs.org"
+      - "fetch-service"
+
+  services:
+
+    fetch-service:
+
+      actions:
+
+        fetch:
+
+          allow:
+            - host: "registry.npmjs.org"
+
+          deny:
+            - host: "*"
+
+  process:
+    allow:
+      - "python"
+
+  git:
+    allow:
+      - "status"
+    deny:
+      - "push"
+
+  secrets:
+    default: deny
+
+limits:
+  duration: "10m"
+  cpu: 1
+  memory: "2g"

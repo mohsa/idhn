@@ -28,8 +28,33 @@ services:
       IDHN_MANIFEST_PATH: /policies/${IDHN_POLICY_FILE:-examples/coding-safe.yaml}
       IDHN_RUN_DIR: /run
       IDHN_RUN_ID: ${IDHN_RUN_ID:-local}
+      IDHN_TASK_ID: ${IDHN_TASK_ID:-unknown-task}
       IDHN_AGENT: ${IDHN_AGENT:-codex}
+      IDHN_AGENT_HOSTNAME: "agent"
       IDHN_GATEWAY_PORT: "8080"
+
+  # Deliberately dangerous internal service for the M2 transitive-escape
+  # experiment (lab/services/fetch-service). It has no direct internet
+  # route either -- its own outbound fetches go through the same gateway,
+  # which is what lets IDHN tell "agent -> fetch-service" apart from
+  # "fetch-service -> the internet" and police them differently.
+  fetch-service:
+    build:
+      context: ..
+      dockerfile: lab/services/fetch-service/Dockerfile
+    networks:
+      internal:
+    depends_on:
+      - gateway
+    environment:
+      HTTP_PROXY: http://gateway:8080
+      HTTPS_PROXY: http://gateway:8080
+      NO_PROXY: localhost,127.0.0.1
+      PORT: "9000"
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
 
   agent:
     build:
@@ -39,6 +64,7 @@ services:
       internal:
     depends_on:
       - gateway
+      - fetch-service
     volumes:
       - ../lab/repos/toy-app:/workspace
     environment:

@@ -1,0 +1,59 @@
+version: "0.1"
+
+task:
+  id: "demo-001"
+  description: "Fix the parser bug and run tests"
+
+capabilities:
+
+  filesystem:
+
+    read:
+      - "/workspace/**"
+
+    write:
+      - "/workspace/src/**"
+      - "/workspace/tests/**"
+
+    deny:
+      - "/workspace/.env"
+      - "/workspace/.github/**"
+      - "/home/**"
+      - "/root/**"
+
+  network:
+
+    default: deny
+
+    allow:
+      - "registry.npmjs.org"
+
+  process:
+
+    allow:
+      - "python"
+      - "pytest"
+      - "git"
+      - "node"
+      - "npm"
+
+  git:
+
+    allow:
+      - "status"
+      - "diff"
+      - "branch"
+
+    deny:
+      - "push"
+
+  secrets:
+    default: deny
+
+limits:
+
+  duration: "30m"
+
+  cpu: 2
+
+  memory: "4g"

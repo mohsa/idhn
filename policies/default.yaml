@@ -1,0 +1,44 @@
+version: "0.1"
+
+task:
+  id: "default"
+  description: "No task configured"
+
+capabilities:
+
+  filesystem:
+
+    read:
+      - "/workspace/**"
+
+    write: []
+
+    deny:
+      - "/workspace/.env"
+      - "/workspace/.github/**"
+      - "/home/**"
+      - "/root/**"
+
+  network:
+    default: deny
+    allow: []
+
+  process:
+    allow:
+      - "python"
+      - "pytest"
+
+  git:
+    allow:
+      - "status"
+      - "diff"
+    deny:
+      - "push"
+
+  secrets:
+    default: deny
+
+limits:
+  duration: "15m"
+  cpu: 1
+  memory: "2g"

@@ -1,0 +1,10 @@
+version: "0.1"
+
+task:
+  id: "task_001"
+  description: "Fix the parser bug and run tests"
+
+policy: "policies/examples/coding-safe.yaml"
+
+expected:
+  tests_pass: true

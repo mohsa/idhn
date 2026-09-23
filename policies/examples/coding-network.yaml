@@ -1,0 +1,72 @@
+version: "0.1"
+
+# Variant of coding-safe.yaml with broader network access, for exercising
+# the network policy boundary (M1) without touching any code -- only the
+# manifest changes.
+
+task:
+  id: "demo-002"
+  description: "Add a dependency and run tests"
+
+capabilities:
+
+  filesystem:
+
+    read:
+      - "/workspace/**"
+
+    write:
+      - "/workspace/src/**"
+      - "/workspace/tests/**"
+      - "/workspace/package.json"
+      - "/workspace/package-lock.json"
+
+    deny:
+      - "/workspace/.env"
+      - "/workspace/.github/**"
+      - "/home/**"
+      - "/root/**"
+
+  network:
+
+    default: deny
+
+    allow:
+      - "registry.npmjs.org"
+      - "pypi.org"
+      - "files.pythonhosted.org"
+      - "github.com"
+      - "raw.githubusercontent.com"
+
+  process:
+
+    allow:
+      - "python"
+      - "pytest"
+      - "pip"
+      - "git"
+      - "node"
+      - "npm"
+
+  git:
+
+    allow:
+      - "status"
+      - "diff"
+      - "branch"
+      - "add"
+      - "commit"
+
+    deny:
+      - "push"
+
+  secrets:
+    default: deny
+
+limits:
+
+  duration: "30m"
+
+  cpu: 2
+
+  memory: "4g"

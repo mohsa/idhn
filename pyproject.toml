@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "idhn"
+version = "0.1.0"
+description = "Interchangeable Deterministic Host Network -- a policy boundary between coding agents and the resources they touch."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "pyyaml>=6.0",
+    "click>=8.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+idhn = "idhn.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["idhn"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

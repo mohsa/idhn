@@ -1,0 +1,17 @@
+# Gateway container: the agent's only route to the internet. Runs
+# idhn.network.proxy, a policy-checked HTTP CONNECT forward proxy.
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY pyproject.toml /app/pyproject.toml
+COPY idhn /app/idhn
+
+RUN pip install --no-cache-dir pyyaml click
+
+ENV PYTHONPATH=/app
+
+EXPOSE 8080
+
+CMD ["python3", "-m", "idhn.network.proxy"]

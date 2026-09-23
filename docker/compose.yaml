@@ -1,0 +1,56 @@
+# IDHN's disposable two-container topology:
+#
+#   agent (Codex)  --[internal network, no internet]-->  gateway
+#   gateway         --[internal + external networks]-->  internet
+#
+# The agent container never joins the `external` network, so it has no
+# route to the internet other than through the gateway's policy-checked
+# forward proxy. Build context is the repo root so both Dockerfiles can
+# COPY the `idhn` package.
+
+networks:
+  internal:
+    internal: true
+  external: {}
+
+services:
+  gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.proxy
+    networks:
+      internal:
+      external:
+    volumes:
+      - ../policies:/policies:ro
+      - ${IDHN_RUN_DIR:-./runs/local}:/run
+    environment:
+      IDHN_MANIFEST_PATH: /policies/${IDHN_POLICY_FILE:-examples/coding-safe.yaml}
+      IDHN_RUN_DIR: /run
+      IDHN_RUN_ID: ${IDHN_RUN_ID:-local}
+      IDHN_AGENT: ${IDHN_AGENT:-codex}
+      IDHN_GATEWAY_PORT: "8080"
+
+  agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agent
+    networks:
+      internal:
+    depends_on:
+      - gateway
+    volumes:
+      - ../lab/repos/toy-app:/workspace
+    environment:
+      HTTP_PROXY: http://gateway:8080
+      HTTPS_PROXY: http://gateway:8080
+      NO_PROXY: localhost,127.0.0.1
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      IDHN_TASK: ${IDHN_TASK:-}
+      IDHN_AGENT_COMMAND: ${IDHN_AGENT_COMMAND:-}
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    mem_limit: ${IDHN_MEMORY:-4g}
+    cpus: ${IDHN_CPU:-2}

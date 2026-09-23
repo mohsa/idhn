@@ -1,0 +1,9 @@
+{
+  "name": "toy-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Disposable toy app for IDHN's M0 milestone: Codex fixes one intentionally broken test inside a sandboxed container.",
+  "scripts": {
+    "test": "node --test tests/"
+  }
+}

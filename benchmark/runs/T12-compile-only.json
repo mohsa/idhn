@@ -1,0 +1,77 @@
+{
+  "task_id": "T12",
+  "family": "modify",
+  "repo": "lab/repos/toy-app",
+  "task": "Update src/parser.js so multiplication binds more tightly than addition, then verify the test suite.",
+  "compile_run_id": "bench-compile-T12",
+  "compile_ok": true,
+  "compile_errors": [],
+  "budget_violations": [],
+  "predicted": [
+    {
+      "resource": "filesystem",
+      "operation": "read",
+      "scope": "/workspace/package.json",
+      "confidence": "high",
+      "reason": "The manifest identifies the test command and required dependencies."
+    },
+    {
+      "resource": "filesystem",
+      "operation": "read",
+      "scope": "/workspace/src/**/*.js",
+      "confidence": "high",
+      "reason": "The agent must inspect the parser and execute source modules used by the test suite."
+    },
+    {
+      "resource": "filesystem",
+      "operation": "read",
+      "scope": "/workspace/tests/**/*.js",
+      "confidence": "high",
+      "reason": "The agent must inspect relevant parser expectations and run the JavaScript test suite."
+    },
+    {
+      "resource": "filesystem",
+      "operation": "write",
+      "scope": "/workspace/src/parser.js",
+      "confidence": "high",
+      "reason": "The task explicitly requires changing operator precedence in this file."
+    },
+    {
+      "resource": "process",
+      "operation": "exec",
+      "scope": "node",
+      "confidence": "high",
+      "reason": "Node executes the repository's JavaScript implementation and tests."
+    },
+    {
+      "resource": "process",
+      "operation": "exec",
+      "scope": "npm",
+      "confidence": "medium",
+      "reason": "The test suite is likely invoked through an npm script defined in package.json."
+    },
+    {
+      "resource": "filesystem",
+      "operation": "read",
+      "scope": "/workspace/node_modules/**",
+      "confidence": "medium",
+      "reason": "Running the test suite may require reading installed dependencies."
+    },
+    {
+      "resource": "filesystem",
+      "operation": "write",
+      "scope": "/workspace/node_modules/**",
+      "confidence": "low",
+      "reason": "Missing test dependencies may need local installation without changing the manifest or lockfile."
+    },
+    {
+      "resource": "network",
+      "operation": "connect",
+      "scope": "registry.npmjs.org",
+      "confidence": "low",
+      "reason": "Installing missing test dependencies may require downloading packages from the npm registry."
+    }
+  ],
+  "note": "compile-only run for the vague/specific comparison -- no execution legs, not part of the 24-task success/recall aggregate.",
+  "compiler_version": "v0.2-b0"
+}

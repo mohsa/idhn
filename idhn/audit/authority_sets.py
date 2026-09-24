@@ -40,6 +40,35 @@ def infrastructure_authority() -> set[Capability]:
     return items
 
 
+def capability_class(capability: Capability) -> str:
+    """"infrastructure" | "tool_substrate" | "task_semantic".
+
+    Not a fourth axis alongside I/P/E/M/U -- a way of slicing them,
+    because the aggregate recall number conflates two very different
+    kinds of miss. Task-semantic capabilities are the actual consequence
+    of doing the task -- which files get written, which hosts get
+    reached, which git state changes -- and are exactly what a capability
+    compiler should be judged on predicting. Tool-substrate capabilities
+    (process.exec for cat/ls/pwd/rg/...) are how the agent looked around
+    to figure out what to do; a compiler that doesn't grant `pwd` isn't
+    making the same kind of mistake as one that doesn't grant
+    `filesystem.write` on the file that needed fixing, and pretending
+    otherwise buries the signal that actually matters (see M3.5's
+    enforcement.process docstring: process execution is real, but weak,
+    containment -- the filesystem/network boundaries are what actually
+    constrain the consequences of running any given tool). Any
+    non-infrastructure `process` capability is tool_substrate, regardless
+    of which specific binary; anything else (filesystem, network, git)
+    is task_semantic.
+    """
+    if any(covers(g, capability) for g in infrastructure_authority()):
+        return "infrastructure"
+    resource, _operation, _scope = capability
+    if resource == "process":
+        return "tool_substrate"
+    return "task_semantic"
+
+
 def covers(granted: Capability, used: Capability) -> bool:
     g_resource, g_operation, g_scope = granted
     u_resource, u_operation, u_target = used

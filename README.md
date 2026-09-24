@@ -616,9 +616,29 @@ run.
 task success under generated authority 80% (**PASS**, target >=80%),
 initial capability recall 37% (**MISS**, target >=80%), unnecessary
 high-risk grants 0 (**PASS**), hard-ceiling budget violations 0
-(**PASS**). n=5 -- exploratory, not final.
+(**PASS**). n=5 -- exploratory, not final. Compiler version frozen as
+`v0.2-b0` for the whole 24-task run -- `benchmark/summarize.py` warns
+loudly if it ever sees a mixed batch, since the aggregate stops meaning
+anything the moment the prompt/parser/budget logic changes mid-run.
 
-The one clean failure (T19, dependency family) is legible, not vague:
+**The 37% is misleading on its own.** `idhn.audit.authority_sets.capability_class`
+splits every capability into task_semantic (filesystem/network/git --
+the actual consequence of the task), tool_substrate (any `process.exec`
+-- how the agent looked around, not what it changed), or infrastructure
+(not the compiler's job). Decomposed: **task-semantic recall 88%**,
+tool-substrate recall 20%, infrastructure n/a. The compiler is not, on
+this evidence, bad at the thing a capability compiler is actually for --
+it's bad at predicting which shell utilities Codex reaches for while
+exploring, and process execution was never meant to be the real
+containment boundary (filesystem/network are). A miss taxonomy over the
+11 missing capabilities found so far (`idhn/audit/miss_taxonomy.py`,
+M1-M9) puts 10/11 at "tool substrate" and 1/11 at "task decomposition"
+(T19's missing source-file edit) -- consistent with the recall split,
+not a coincidence limited to it, though n=11 is far too small to call a
+real distribution yet.
+
+The one clean task-semantic failure (T19, dependency family) is legible,
+not vague:
 the compiler predicted the dependency-*installation* mechanics precisely
 (`package.json` write, `node_modules/**` write, `registry.npmjs.org`)
 and completely missed that the task also needed `src/format.js` itself

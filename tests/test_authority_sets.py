@@ -1,6 +1,7 @@
 import json
 
 from idhn.audit.authority_sets import (
+    capability_class,
     compute_missing,
     compute_unnecessary,
     exercised_from_run,
@@ -122,3 +123,20 @@ def test_network_events_from_run_empty_when_no_gateway_log(tmp_path):
     run_dir.mkdir()
     # No events.jsonl at all -- the unconstrained leg has no gateway.
     assert network_events_from_run(run_dir) == (set(), set())
+
+
+def test_capability_class_infrastructure():
+    assert capability_class(("process", "exec", "codex")) == "infrastructure"
+    assert capability_class(("network", "connect", "chatgpt.com")) == "infrastructure"
+    assert capability_class(("network", "connect", "ab.chatgpt.com")) == "infrastructure"
+
+
+def test_capability_class_tool_substrate_is_any_non_infra_process():
+    assert capability_class(("process", "exec", "cat")) == "tool_substrate"
+    assert capability_class(("process", "exec", "npm")) == "tool_substrate"
+
+
+def test_capability_class_task_semantic_is_filesystem_and_network_and_git():
+    assert capability_class(("filesystem", "write", "/workspace/src/parser.js")) == "task_semantic"
+    assert capability_class(("network", "connect", "registry.npmjs.org")) == "task_semantic"
+    assert capability_class(("git", "run", "status")) == "task_semantic"

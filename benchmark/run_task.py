@@ -36,6 +36,7 @@ import yaml  # noqa: E402
 
 from idhn.adapters.codex import CodexAdapter  # noqa: E402
 from idhn.audit.authority_sets import (  # noqa: E402
+    capability_class,
     compute_missing,
     compute_unnecessary,
     exercised_from_run,
@@ -193,6 +194,7 @@ def run_task(task_id: str) -> dict:
         "family": task_data["family"],
         "repo": repo_rel,
         "task": task_text,
+        "compiler_version": compile_result.compiler_version,
         "compile_run_id": compile_run_id,
         "exec_run_id": exec_run_id,
         "constrained_run_id": constrained_run_id,
@@ -205,6 +207,11 @@ def run_task(task_id: str) -> dict:
         ],
         "exercised": sorted(list(t) for t in exercised),
         "missing": sorted(list(t) for t in missing),
+        # Mechanical (resource-type-based), not a judgment call -- see
+        # idhn.audit.miss_taxonomy for the M1-M9 *why* classification,
+        # which requires actually reading the trace and is recorded by
+        # hand in benchmark/results/, not computed here.
+        "missing_by_class": {c: sorted(list(t) for t in missing if capability_class(t) == c) for c in ("task_semantic", "tool_substrate", "infrastructure")},
         "unnecessary": sorted(list(t) for t in unnecessary),
         "container_exit_code": exit_code,
         "tests_before": list(before) if before else None,

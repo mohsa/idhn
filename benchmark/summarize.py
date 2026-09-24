@@ -21,7 +21,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from idhn.audit.authority_sets import covers, infrastructure_authority  # noqa: E402
+from idhn.audit.authority_sets import capability_class, covers, infrastructure_authority  # noqa: E402
+from idhn.compiler.compiler import COMPILER_VERSION  # noqa: E402
 from idhn.core.models import ActionRequest  # noqa: E402
 from idhn.core.risk import classify  # noqa: E402
 
@@ -70,6 +71,13 @@ def task_succeeded(record: dict) -> bool | None:
     return record["task_success_under_generated_authority"]
 
 
+def _recall_for(exercised_subset: set, predicted: set) -> float | None:
+    if not exercised_subset:
+        return None
+    covered = {e for e in exercised_subset if any(covers(p, e) for p in predicted)}
+    return len(covered) / len(exercised_subset)
+
+
 def task_metrics(record: dict) -> dict:
     infra = infrastructure_authority()
     predicted = {(d["resource"], d["operation"], d["scope"]) for d in record["predicted"]}
@@ -77,8 +85,18 @@ def task_metrics(record: dict) -> dict:
     unnecessary = {tuple(u) for u in record["unnecessary"]}
 
     non_infra_exercised = {e for e in exercised if not any(covers(i, e) for i in infra)}
-    covered_by_p = {e for e in non_infra_exercised if any(covers(p, e) for p in predicted)}
-    recall = (len(covered_by_p) / len(non_infra_exercised)) if non_infra_exercised else None
+    recall = _recall_for(non_infra_exercised, predicted)
+
+    # Split by idhn.audit.authority_sets.capability_class: the aggregate
+    # recall conflates "missed a task consequence" (the kind of miss a
+    # capability compiler should be judged on) with "missed a shell tool
+    # used to look around" (a much weaker, arguably wrong-to-expect kind
+    # of miss -- see capability_class's docstring). Report them
+    # separately rather than let one number hide which is happening.
+    semantic_exercised = {e for e in non_infra_exercised if capability_class(e) == "task_semantic"}
+    substrate_exercised = {e for e in non_infra_exercised if capability_class(e) == "tool_substrate"}
+    semantic_recall = _recall_for(semantic_exercised, predicted)
+    substrate_recall = _recall_for(substrate_exercised, predicted)
 
     used_p = {p for p in predicted if any(covers(p, e) for e in exercised)}
     precision = (len(used_p) / len(predicted)) if predicted else None
@@ -87,6 +105,8 @@ def task_metrics(record: dict) -> dict:
 
     return {
         "recall": recall,
+        "semantic_recall": semantic_recall,
+        "substrate_recall": substrate_recall,
         "precision": precision,
         "non_infra_exercised_count": len(non_infra_exercised),
         "predicted_count": len(predicted),
@@ -119,10 +139,21 @@ def main() -> None:
         print("no results yet -- run benchmark/run_task.py for some task ids first")
         return
 
-    print(f"\n{'task':<6} {'family':<11} {'success(gen)':<13} {'recall':<8} {'precision':<10} {'missing':<8} {'unnecessary':<12} {'budget'}")
+    # The whole point of freezing a compiler version is that these
+    # numbers stay comparable across every task run under it -- a mixed
+    # batch would make the aggregate meaningless, so this is loud, not a
+    # footnote.
+    versions = {r.get("compiler_version", "unknown") for r in records}
+    if versions != {COMPILER_VERSION}:
+        print(f"\n*** WARNING: mixed or unexpected compiler versions in this batch: {sorted(versions)} ***")
+        print(f"*** current COMPILER_VERSION is {COMPILER_VERSION!r} -- aggregate below may not be comparable across tasks ***\n")
+
+    print(f"\n{'task':<6} {'family':<11} {'success(gen)':<13} {'recall':<8} {'sem.recall':<11} {'sub.recall':<11} {'precision':<10} {'missing':<8} {'unnecessary':<12} {'budget'}")
     total_success_gen = 0
     success_judged = 0
     total_recall: list[float] = []
+    total_semantic_recall: list[float] = []
+    total_substrate_recall: list[float] = []
     unnecessary_by_risk_total: Counter = Counter()
     hard_ceiling_violations = 0
 
@@ -134,22 +165,30 @@ def main() -> None:
             total_success_gen += int(bool(success_gen))
         if m["recall"] is not None:
             total_recall.append(m["recall"])
+        if m["semantic_recall"] is not None:
+            total_semantic_recall.append(m["semantic_recall"])
+        if m["substrate_recall"] is not None:
+            total_substrate_recall.append(m["substrate_recall"])
         for risk, count in m["unnecessary_by_risk"].items():
             unnecessary_by_risk_total[risk] += count
         hard_ceiling_violations += len(r.get("budget_violations", []))
 
         recall_str = f"{m['recall']:.0%}" if m["recall"] is not None else "n/a"
+        semantic_str = f"{m['semantic_recall']:.0%}" if m["semantic_recall"] is not None else "n/a"
+        substrate_str = f"{m['substrate_recall']:.0%}" if m["substrate_recall"] is not None else "n/a"
         precision_str = f"{m['precision']:.0%}" if m["precision"] is not None else "n/a"
         success_str = "n/a" if success_gen is None else str(bool(success_gen))
         print(
             f"{r['task_id']:<6} {r['family']:<11} {success_str:<13} "
-            f"{recall_str:<8} {precision_str:<10} {len(r['missing']):<8} {len(r['unnecessary']):<12} "
+            f"{recall_str:<8} {semantic_str:<11} {substrate_str:<11} {precision_str:<10} {len(r['missing']):<8} {len(r['unnecessary']):<12} "
             f"{len(r.get('budget_violations', []))}"
         )
 
     n = len(records)
     success_rate = (total_success_gen / success_judged) if success_judged else None
     avg_recall = sum(total_recall) / len(total_recall) if total_recall else None
+    avg_semantic_recall = sum(total_semantic_recall) / len(total_semantic_recall) if total_semantic_recall else None
+    avg_substrate_recall = sum(total_substrate_recall) / len(total_substrate_recall) if total_substrate_recall else None
     high_risk_unnecessary = unnecessary_by_risk_total.get("high", 0) + unnecessary_by_risk_total.get("critical", 0)
 
     print("\n" + "=" * 70)
@@ -160,11 +199,20 @@ def main() -> None:
     else:
         print("Task success under generated authority   n/a (no judgeable runs)")
     if avg_recall is not None:
-        print(f"Initial capability recall                {avg_recall:.0%}   (target >= 80%)   {'PASS' if avg_recall >= 0.80 else 'MISS'}")
+        print(f"Initial capability recall (raw, all)     {avg_recall:.0%}   (target >= 80%)   {'PASS' if avg_recall >= 0.80 else 'MISS'}")
     else:
-        print("Initial capability recall                n/a (no non-infrastructure exercised capabilities observed)")
+        print("Initial capability recall (raw, all)     n/a (no non-infrastructure exercised capabilities observed)")
     print(f"Unnecessary high-risk grants              {high_risk_unnecessary}   (target == 0)     {'PASS' if high_risk_unnecessary == 0 else 'MISS'}")
     print(f"Hard-ceiling (budget) violations           {hard_ceiling_violations}   (target == 0)     {'PASS' if hard_ceiling_violations == 0 else 'MISS'}")
+
+    print("\n" + "-" * 70)
+    print("RECALL DECOMPOSED (not part of the fixed targets, but decides what to build next --")
+    print("if misses are mostly task-semantic, improve the compiler; if mostly tool-substrate,")
+    print("the process model -- not the compiler -- may be the wrong abstraction; see README.)")
+    print("-" * 70)
+    print(f"Task-semantic recall    {f'{avg_semantic_recall:.0%}' if avg_semantic_recall is not None else 'n/a':<8} (filesystem/network/git -- the actual task consequence)")
+    print(f"Tool-substrate recall   {f'{avg_substrate_recall:.0%}' if avg_substrate_recall is not None else 'n/a':<8} (process.exec for shell/discovery tools)")
+    print("Infrastructure recall   n/a      (fixed floor, not the compiler's job to predict -- see infrastructure_authority())")
 
     print("\nUnused authority by risk tier (raw components, not one score):")
     for risk in ("low", "medium", "high", "critical"):

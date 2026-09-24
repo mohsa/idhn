@@ -1,0 +1,129 @@
+{
+  "compiler_version": "v0.2-b0",
+  "classifications": {
+    "T01": [
+      {
+        "capability": [
+          "process",
+          "exec",
+          "ls"
+        ],
+        "cause": "M3",
+        "note": "basic discovery tool, in context tool list but not predicted"
+      },
+      {
+        "capability": [
+          "process",
+          "exec",
+          "nl"
+        ],
+        "cause": "M3",
+        "note": "coreutils binary never listed in the compiler context at all -- context-completeness gap contributed"
+      },
+      {
+        "capability": [
+          "process",
+          "exec",
+          "pwd"
+        ],
+        "cause": "M3",
+        "note": "basic discovery tool, in context tool list but not predicted"
+      }
+    ],
+    "T07": [
+      {
+        "capability": [
+          "process",
+          "exec",
+          "cat"
+        ],
+        "cause": "M3",
+        "note": "inspection tool, in context tool list but not predicted"
+      },
+      {
+        "capability": [
+          "process",
+          "exec",
+          "ls"
+        ],
+        "cause": "M3",
+        "note": "discovery tool, in context tool list but not predicted"
+      },
+      {
+        "capability": [
+          "process",
+          "exec",
+          "pwd"
+        ],
+        "cause": "M3",
+        "note": "discovery tool, in context tool list but not predicted"
+      },
+      {
+        "capability": [
+          "process",
+          "exec",
+          "python3"
+        ],
+        "cause": "M3",
+        "note": "used for an inline-script edit; in context tool list but not predicted"
+      }
+    ],
+    "T08": [
+      {
+        "capability": [
+          "process",
+          "exec",
+          "pwd"
+        ],
+        "cause": "M3",
+        "note": "discovery tool, in context tool list but not predicted"
+      }
+    ],
+    "T13": [
+      {
+        "capability": [
+          "process",
+          "exec",
+          "pwd"
+        ],
+        "cause": "M3",
+        "note": "discovery tool, in context tool list but not predicted"
+      }
+    ],
+    "T19": [
+      {
+        "capability": [
+          "filesystem",
+          "write",
+          "/workspace/src/format.js"
+        ],
+        "cause": "M1",
+        "note": "compiler predicted dependency-installation mechanics (package.json, node_modules, registry) but never named the source-file edit needed to USE the dependency -- a task-decomposition miss, not a permissions miss"
+      },
+      {
+        "capability": [
+          "process",
+          "exec",
+          "pwd"
+        ],
+        "cause": "M3",
+        "note": "discovery tool, in context tool list but not predicted"
+      }
+    ]
+  },
+  "counts": {
+    "M3": 10,
+    "M1": 1
+  },
+  "causes": {
+    "M1": "task_decomposition",
+    "M2": "resource_discovery",
+    "M3": "tool_substrate",
+    "M4": "agent_infrastructure",
+    "M5": "dependency_network",
+    "M6": "scope_too_narrow",
+    "M7": "environment_runtime",
+    "M8": "unpredictable_runtime",
+    "M9": "measurement_instrumentation"
+  }
+}

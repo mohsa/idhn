@@ -1,0 +1,98 @@
+{
+  "task_id": "T10",
+  "family": "modify",
+  "repo": "lab/repos/toy-app",
+  "task": "Fix the failing tests.",
+  "compile_run_id": "bench-compile-T10",
+  "compile_ok": true,
+  "compile_errors": [],
+  "budget_violations": [],
+  "predicted": [
+    {
+      "resource": "filesystem",
+      "operation": "read",
+      "scope": "/workspace/package.json",
+      "confidence": "high",
+      "reason": "The agent needs the test scripts and dependency declarations to diagnose failing tests."
+    },
+    {
+      "resource": "filesystem",
+      "operation": "read",
+      "scope": "/workspace/src/**/*.js",
+      "confidence": "high",
+      "reason": "The agent needs to inspect the JavaScript implementation responsible for the failures."
+    },
+    {
+      "resource": "filesystem",
+      "operation": "read",
+      "scope": "/workspace/tests/**/*.js",
+      "confidence": "high",
+      "reason": "The agent needs to inspect test expectations and reproduce the failures."
+    },
+    {
+      "resource": "filesystem",
+      "operation": "write",
+      "scope": "/workspace/src/parser.js",
+      "confidence": "high",
+      "reason": "The parser is the identified implementation file likely to require correction."
+    },
+    {
+      "resource": "filesystem",
+      "operation": "write",
+      "scope": "/workspace/tests/parser.test.js",
+      "confidence": "medium",
+      "reason": "The fix may require adding regression coverage in the existing parser tests."
+    },
+    {
+      "resource": "process",
+      "operation": "exec",
+      "scope": "node",
+      "confidence": "high",
+      "reason": "Node is needed to execute JavaScript tests and targeted parser reproductions."
+    },
+    {
+      "resource": "process",
+      "operation": "exec",
+      "scope": "npm",
+      "confidence": "high",
+      "reason": "The agent needs to run the test scripts declared in package.json."
+    },
+    {
+      "resource": "filesystem",
+      "operation": "read",
+      "scope": "/workspace/node_modules/**",
+      "confidence": "medium",
+      "reason": "The test runner may need to load installed project dependencies."
+    },
+    {
+      "resource": "filesystem",
+      "operation": "write",
+      "scope": "/workspace/node_modules/**",
+      "confidence": "low",
+      "reason": "Missing test dependencies may need to be installed before failures can be reproduced."
+    },
+    {
+      "resource": "filesystem",
+      "operation": "read",
+      "scope": "/workspace/package-lock.json",
+      "confidence": "low",
+      "reason": "A lockfile, if present, would guide reproducible dependency installation."
+    },
+    {
+      "resource": "filesystem",
+      "operation": "write",
+      "scope": "/workspace/.npm/**",
+      "confidence": "low",
+      "reason": "Dependency installation may require an npm cache configured within the workspace."
+    },
+    {
+      "resource": "network",
+      "operation": "connect",
+      "scope": "registry.npmjs.org",
+      "confidence": "low",
+      "reason": "Installing missing test dependencies may require access to the npm registry."
+    }
+  ],
+  "note": "compile-only run for the vague/specific comparison -- no execution legs, not part of the 24-task success/recall aggregate.",
+  "compiler_version": "v0.2-b0"
+}

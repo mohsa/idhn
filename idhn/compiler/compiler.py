@@ -16,6 +16,15 @@ function, so this module doesn't hardcode Codex or any other backend --
 see idhn/cli.py's `compile` command for what's wired in for now (Codex
 CLI in one-shot mode, no workspace access, via
 idhn.runtime.docker.run_codex_prompt).
+
+COMPILER_VERSION is "v0.2-b0": task -> "which capabilities are probably
+needed?" -> Capability IR, frozen for the 24-task benchmark run. A
+planner-based successor (task -> TaskPlan -> deterministic-where-
+possible mapping -> Capability IR) is the next architecture to try, but
+it has to be a NEW version compared against b0 on identical tasks, not a
+mid-benchmark change to this one -- otherwise the aggregate numbers mix
+two different compilers and stop meaning anything. Bump this string (and
+only this string, not the underlying logic) if that comparison starts.
 """
 from __future__ import annotations
 
@@ -27,6 +36,8 @@ from idhn.compiler.context import RepoContext
 from idhn.compiler.parser import CapabilityDecision, CompilerOutputError, parse_capability_ir, validate_capability_ir
 from idhn.compiler.prompts import build_prompt
 
+COMPILER_VERSION = "v0.2-b0"
+
 Completer = Callable[[str], str]
 
 
@@ -37,6 +48,7 @@ class CompileResult:
     decisions: list[CapabilityDecision]
     errors: list[str]
     budget_violations: list[str]
+    compiler_version: str = COMPILER_VERSION
 
     @property
     def ok(self) -> bool:

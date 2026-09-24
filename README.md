@@ -599,52 +599,76 @@ revocation) are not started.
 
 ## v0.2-B: does the compiler's performance survive variation?
 
-Full writeup: `benchmark/results/v0.2-b-summary.md`. A 24-task corpus
-(4 families -- diagnose/modify/test/dependency -- x 6 tasks each,
-spanning `lab/repos/toy-app` plus two new toy repos,
+Full writeup: `benchmark/results/v0.2-b-summary.md` (all 24 tasks,
+frozen) and `benchmark/results/ablations.md` (6 causal ablations). A
+24-task corpus (4 families -- diagnose/modify/test/dependency -- x 6
+tasks each, spanning `lab/repos/toy-app` plus two new toy repos,
 `benchmark/corpus/js-repo-2` and `.../python-repo-1`, for dependency-
-family and language-diversity coverage) with a representative 5 tasks
-run through the full pipeline: compile (P, now with categorical
-`confidence` and a one-sentence `reason` per capability -- collected,
-not yet used to gate anything), an unconstrained execution (E), and an
-execution constrained by exactly what the compiler proposed plus the
-fixed infrastructure floor (I union P) -- the literal "does the
-compiler's own proposal work" test, not inferred from the unconstrained
-run.
+family and language-diversity coverage), all 24 run through the full
+pipeline: compile (P, with categorical `confidence` and a one-sentence
+`reason` per capability -- collected, not yet used to gate anything), an
+unconstrained execution (E), and an execution constrained by exactly
+what the compiler proposed plus the fixed infrastructure floor (I union
+P) -- the literal "does the compiler's own proposal work" test, not
+inferred from the unconstrained run.
 
 **Against the targets fixed before running** (not adjusted after):
-task success under generated authority 80% (**PASS**, target >=80%),
-initial capability recall 37% (**MISS**, target >=80%), unnecessary
-high-risk grants 0 (**PASS**), hard-ceiling budget violations 0
-(**PASS**). n=5 -- exploratory, not final. Compiler version frozen as
-`v0.2-b0` for the whole 24-task run -- `benchmark/summarize.py` warns
-loudly if it ever sees a mixed batch, since the aggregate stops meaning
-anything the moment the prompt/parser/budget logic changes mid-run.
+task success under generated authority 92%, 22/24 (**PASS**, target
+>=80%), initial capability recall 29% (**MISS**, target >=80%),
+unnecessary high-risk grants 0 (**PASS**), hard-ceiling budget
+violations 0 (**PASS**). n=24, frozen -- this is the full corpus, not a
+sample. Compiler version frozen as `v0.2-b0` for the whole run --
+`benchmark/summarize.py` warns loudly if it ever sees a mixed batch,
+since the aggregate stops meaning anything the moment the
+prompt/parser/budget logic changes mid-run.
 
-**The 37% is misleading on its own.** `idhn.audit.authority_sets.capability_class`
+**The 29% is misleading on its own.** `idhn.audit.authority_sets.capability_class`
 splits every capability into task_semantic (filesystem/network/git --
 the actual consequence of the task), tool_substrate (any `process.exec`
 -- how the agent looked around, not what it changed), or infrastructure
-(not the compiler's job). Decomposed: **task-semantic recall 88%**,
-tool-substrate recall 20%, infrastructure n/a. The compiler is not, on
-this evidence, bad at the thing a capability compiler is actually for --
-it's bad at predicting which shell utilities Codex reaches for while
-exploring, and process execution was never meant to be the real
-containment boundary (filesystem/network are). A miss taxonomy over the
-11 missing capabilities found so far (`idhn/audit/miss_taxonomy.py`,
-M1-M9) puts 10/11 at "tool substrate" and 1/11 at "task decomposition"
-(T19's missing source-file edit) -- consistent with the recall split,
-not a coincidence limited to it, though n=11 is far too small to call a
-real distribution yet.
+(not the compiler's job). Decomposed: **task-semantic recall 96%**,
+tool-substrate recall 14%, infrastructure n/a -- the same shape the n=5
+pass showed (88%/20%), now confirmed across the full corpus rather than
+five tasks. The compiler is not, on this evidence, bad at the thing a
+capability compiler is actually for -- it's bad at predicting which
+shell utilities Codex reaches for while exploring, and process execution
+was never meant to be the real containment boundary (filesystem/network
+are). A hand-reviewed miss taxonomy over all 55 missing capabilities
+(`idhn/audit/miss_taxonomy.py`, M1-M9) puts 49/55 at "tool substrate," 4
+at "unpredictable runtime" (a recurring pattern: `npm test`/`npm
+install` reaching the registry on tasks that never mention dependencies,
+driven by the agent's own strategy, not the task text -- the same repo
+shows it on some runs and not others), 1 at "measurement
+instrumentation" (a trace-parser artifact), and 1 at "task decomposition"
+(T19's missing source-file edit). Zero misses landed in resource-
+discovery, agent-infrastructure, dependency-network, scope-too-narrow, or
+environment-runtime causes.
 
 The one clean task-semantic failure (T19, dependency family) is legible,
-not vague:
-the compiler predicted the dependency-*installation* mechanics precisely
-(`package.json` write, `node_modules/**` write, `registry.npmjs.org`)
-and completely missed that the task also needed `src/format.js` itself
-edited to use the new package. It reasoned well about how you add a
-dependency and not at all about the source file that has to change to
-use it.
+not vague: the compiler predicted the dependency-*installation*
+mechanics precisely (`package.json` write, `node_modules/**` write,
+`registry.npmjs.org`) and completely missed that the task also needed
+`src/format.js` itself edited to use the new package. It reasoned well
+about how you add a dependency and not at all about the source file that
+has to change to use it. The other failure (T24) isn't a capability miss
+at all -- the compiler's authority was sufficient, but the corpus
+container's Python is PEP 668 "externally managed" with no
+`python3-venv`, so `pip install` fails regardless of what's granted.
+
+Six causal ablations (`benchmark/ablate.py`) rerun an already-passing
+task's constrained leg with one believed-necessary capability removed,
+checking for PASS -> FAIL -- the only way to tell "exercised" apart from
+"necessary" with real ground truth. 4 of 6 confirm cleanly (single-file
+modify, multi-file modify, test creation, network-gated dependency
+behavior). The other two are findings in their own right: one
+(dependency addition) shows the success metric itself is blind to a real
+effect that direct file inspection still confirms; the other (diagnosis)
+shows removing a `filesystem.read` grant has **no enforcement effect at
+all** -- `idhn.enforcement.filesystem.build_mount_plan` only ever builds
+mounts from `write` and `deny` patterns, so the declared `read`
+allowlist is currently audited (via `PolicyEngine.decide()`) but not
+mechanically preventive. A real gap in the enforcement model, surfaced
+by an ablation rather than assumed.
 
 The vague/specific comparison (compile-only, same underlying fix, three
 phrasings) found the hypothesized pattern for real: the vaguest phrasing
@@ -662,15 +686,32 @@ problem than an ordinary scope miss, and the benchmark needs to be able
 to catch a compiler that resolves uncertainty that way even if it never
 actually does.
 
-Two real measurement bugs found and fixed mid-run, both documented in
-the results file: the unconstrained leg has no gateway, so it could
-never show network authority as "exercised" on its own (fixed by also
-pulling allow/deny signal from the constrained leg's gateway log); and
-"task success" needed a different definition per family (a diagnose task
-succeeding means the repo was left alone; a good regression test for an
-unfixed bug is supposed to fail) -- both found by watching a correct-
-looking metric produce an obviously wrong verdict on real data, not
+Three real measurement/enforcement bugs found and fixed mid-run, all
+documented in the results file: the unconstrained leg has no gateway, so
+it could never show network authority as "exercised" on its own (fixed
+by also pulling allow/deny signal from the constrained leg's gateway
+log); "task success" needed a different definition per family and, for
+3 of 6 dependency tasks, per task (a diagnose task succeeding means the
+repo was left alone; a good regression test for an unfixed bug is
+supposed to fail; three dependency tasks that never touch tests can't be
+judged by "tests pass"); and Docker's default behavior for a bind mount
+whose host source doesn't exist yet (create it as a directory) was
+silently corrupting predicted writes to not-yet-existing files like
+`requirements.txt`. All three found by watching a correct-looking metric
+or a real container run produce an obviously wrong result, not
 anticipated in advance.
+
+**Not done, deliberately**: the miss distribution doesn't show the
+"adaptive escalation is justified" shape the original design note
+described (that would need execution-state-dependent misses to dominate
+*and* be genuinely case-by-case unpredictable) -- tool-substrate misses
+dominate instead, and those already have a different, non-escalation
+explanation (see the open question in `v0.2-b-summary.md`). So v0.2-C
+(escalation), the planner-based compiler redesign for the T19-shaped
+miss, and any process-execution-vs-consequence-authority model change
+are all still open, still un-started, and still each a new
+version compared against this frozen `v0.2-b0` baseline on identical
+tasks -- not edits to this run.
 
 ## Setup
 
@@ -868,18 +909,26 @@ Codex runs. No more enforcement features added past this tag.
 - **v0.2-B -- Benchmark the compiler before trusting it**: 24-task corpus
   built (4 families x 6 tasks, 3 repos, 2 languages); capability
   precision/recall computed from execution, not hand-labeled ground
-  truth. In progress: 5/24 tasks run through the full pipeline -- see
-  "v0.2-B" above. Task success under generated authority hit the target
-  (80%, >=80%); capability recall did not (37%, target >=80%), with one
-  clean, legible miss (dependency-installation mechanics predicted
-  correctly, the source-file edit needed to use the dependency missed
-  entirely). Unnecessary high-risk grants and hard-ceiling violations
-  both 0. The vague/specific comparison confirmed authority width
-  tracks task specificity, measured on a real triad. 19 tasks and the
-  6-task causal-ablation subset remain.
+  truth. Complete and frozen as `compiler-v0.2-b0`: all 24/24 tasks run
+  through the full pipeline plus 6 causal ablations -- see "v0.2-B"
+  above. Task success under generated authority hit the target (92%,
+  22/24, >=80%); capability recall did not (29%, target >=80%), but
+  decomposed by consequence-vs-substrate it's 96%/14%, confirming the n=5
+  pattern at full scale. Two failures, each individually diagnosed (one
+  task-decomposition miss, one container-environment limitation
+  unrelated to authority). Unnecessary high-risk grants and hard-ceiling
+  violations both 0. The vague/specific comparison confirmed authority
+  width tracks task specificity, measured on a real triad. The six
+  ablations confirmed 4/6 capabilities as causally necessary by direct
+  PASS -> FAIL, and surfaced a real enforcement gap (`filesystem.read`
+  grants currently have no mechanical effect) along the way. Full miss
+  taxonomy shows no escalation-justifying distribution yet -- tool-
+  substrate misses dominate and have a non-escalation explanation.
 - **v0.2-C -- Escalation**: a denied-but-plausibly-legitimate operation
   becomes a narrow, human-in-the-loop grant request instead of a flat
-  denial. Not started -- per the plan, escalation design should come
-  from the miss distribution, and 5 tasks isn't enough of one yet.
+  denial. Not started -- the v0.2-B miss taxonomy doesn't show the
+  distribution (execution-state-dependent misses dominating) that would
+  justify it; tool-substrate misses dominate instead, with a different,
+  process-model explanation.
 - **v0.2-D -- Revocation**: a temporary escalation grant expires instead
   of quietly becoming permanent task authority. Not started.

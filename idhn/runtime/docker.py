@@ -116,22 +116,30 @@ def write_filesystem_override(manifest: Manifest, run_dir: Path, codex_auth_path
     plan = build_mount_plan(manifest.capabilities, str(workspace_dir))
 
     # Every mount's target has to already exist as the right kind of
-    # thing (directory for tmpfs, a regular file for the empty-file
-    # stub): the base /workspace mount is read-only, so the container
+    # thing: the base /workspace mount is read-only, so the container
     # runtime can't create a missing mountpoint inside it at init time
-    # (`mkdirat ...: read-only file system` for a missing directory;
-    # the equivalent for a missing file, found by actually running this
-    # against a workspace that doesn't happen to have a deny-listed
-    # file/dir already present). A deny pattern the repo doesn't already
-    # have something at would otherwise break the whole container start,
-    # not just fail to mask anything.
+    # (`mkdirat ...: read-only file system` for a missing directory). And
+    # separately: for a "rw" bind mount (a write grant) whose target
+    # doesn't exist in the corpus repo yet, its HOST source doesn't exist
+    # either, and Docker's default for a missing bind-mount source is to
+    # create it as a directory -- silently turning an intended file (e.g.
+    # `filesystem.write: /workspace/requirements.txt` on a repo with no
+    # requirements.txt yet) into a directory, corrupting it for anything
+    # that reads or writes it afterward (found by actually running this
+    # -- two corpus repos ended up with directories named
+    # requirements.txt and package-lock.json). Pre-create every target as
+    # the right kind of thing on the host first, using MountSpec.is_dir
+    # to know which.
     for spec in plan:
         target_path = workspace_dir / Path(spec.container_path).relative_to("/workspace")
         if spec.kind == "tmpfs":
             target_path.mkdir(parents=True, exist_ok=True)
-        elif spec.kind == "bind" and spec.mode == "ro" and not target_path.exists():
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            target_path.touch()
+        elif spec.kind == "bind" and not target_path.exists():
+            if spec.is_dir:
+                target_path.mkdir(parents=True, exist_ok=True)
+            else:
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                target_path.touch()
 
     volumes = [_mount_spec_to_compose_volume(spec) for spec in plan]
     volumes.append({"type": "bind", "source": codex_auth_path, "target": "/home/agent/.codex/auth.json", "read_only": True})

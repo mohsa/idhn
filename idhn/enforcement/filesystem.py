@@ -50,6 +50,17 @@ class MountSpec:
     mode: str  # "ro" or "rw"
     kind: str  # "bind" or "tmpfs"
     host_path: str | None = None  # required for "bind", ignored for "tmpfs"
+    is_dir: bool = False  # whether the target is a directory tree or an exact file
+
+    # Whoever prepares mountpoints on the host (idhn.runtime.docker) needs
+    # this: a write grant for a file that doesn't exist yet in the corpus
+    # (e.g. `filesystem.write: /workspace/requirements.txt` on a repo with
+    # no requirements.txt) has a source path that doesn't exist either,
+    # and Docker's default behavior for a missing bind-mount source is to
+    # create it as a DIRECTORY -- silently turning the intended file into
+    # one, corrupting anything that tries to read or write it as a file
+    # afterward. Found by actually running this: two corpus repos ended up
+    # with directories named requirements.txt and package-lock.json.
 
 
 def _relpath(pattern: str) -> tuple[str, bool] | None:
@@ -85,13 +96,14 @@ def build_mount_plan(capabilities: dict[str, Any], host_workspace: str) -> list[
         parsed = _relpath(pattern)
         if parsed is None:
             continue
-        rel, _ = parsed
+        rel, is_dir = parsed
         plan.append(
             MountSpec(
                 container_path=f"{WORKSPACE_ROOT}/{rel}",
                 mode="rw",
                 kind="bind",
                 host_path=f"{host_workspace}/{rel}",
+                is_dir=is_dir,
             )
         )
 

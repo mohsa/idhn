@@ -48,8 +48,21 @@ def task_succeeded(record: dict) -> bool | None:
       it added a real test for the precedence bug, which correctly
       failed, and the raw field reported that as failure). Success is
       "added test coverage": total test count increased.
-    - modify, dependency: the raw field's actual meaning (tests pass
-      after) is the right check.
+    - modify: the raw field's actual meaning (tests pass after) is the
+      right check.
+    - dependency: NOT uniform within the family, unlike diagnose/test --
+      checked by reading each task's own text, not guessed. T21, T22,
+      T23 only ask to add and/or confirm a dependency installs, and
+      never to fix or use it -- e.g. T21 says "confirm `npm install`
+      succeeds. Don't change any other files"; none of the three touch
+      src/. The corpus repo's one pre-existing, unrelated failing test
+      is out of scope for them, so "all tests pass after" is the wrong
+      bar; success is "didn't make it worse" (failure count didn't
+      increase). T19, T20, T24 explicitly require using the dependency
+      to fix or extend behavior ("...and make the tests pass", "...and
+      use it in src/dedupe.py"), so the raw field's meaning (tests pass
+      after) is the right check there -- crediting an unused dependency
+      as success would be wrong for these three specifically.
 
     None means we don't have enough data to judge (e.g. the run produced
     no test logs at all).
@@ -57,6 +70,7 @@ def task_succeeded(record: dict) -> bool | None:
     before = record.get("constrained_tests_before")
     after = record.get("constrained_tests_after")
     family = record["family"]
+    task_id = record["task_id"]
 
     if family == "diagnose":
         if before is None or after is None:
@@ -67,6 +81,13 @@ def task_succeeded(record: dict) -> bool | None:
         if before is None or after is None:
             return None
         return sum(after) > sum(before)
+
+    if family == "dependency" and task_id in {"T21", "T22", "T23"}:
+        if before is None:
+            return None
+        if after is None:
+            return False
+        return after[1] <= before[1]
 
     return record["task_success_under_generated_authority"]
 

@@ -1,0 +1,30 @@
+{
+  "task_id": "T01",
+  "family": "diagnose",
+  "ablated_capability": [
+    "filesystem",
+    "read",
+    "/workspace/src/**"
+  ],
+  "baseline_success": true,
+  "baseline_tests_before": [
+    3,
+    1
+  ],
+  "baseline_tests_after": [
+    3,
+    1
+  ],
+  "ablated_container_exit_code": 1,
+  "ablated_tests_before": [
+    3,
+    1
+  ],
+  "ablated_tests_after": [
+    3,
+    1
+  ],
+  "ablated_success": true,
+  "run_id": "bench-ablate-T01",
+  "note": "Both baseline and ablated runs produced a correct, specific diagnosis (src/parser.js:29, the precedence-handling bug in toRPN) even with filesystem.read:/workspace/src/** removed from the manifest. Root cause, checked directly: idhn.enforcement.filesystem.build_mount_plan has no loop over fs[\"read\"] at all -- only \"write\" and \"deny\" patterns generate real mounts. The base workspace mount is read-only for the WHOLE tree regardless of what is in the read list; a read grant is audited by idhn.core.policy.PolicyEngine (which does check it) but is not itself OS-enforced, and nothing routes Codex's local file reads through that engine. So this ablation does not show \"read access was unnecessary for diagnosis\" -- it shows that removing a read grant currently has no mechanical enforcement effect at all, only explicit deny patterns and write grants have real teeth. A real architectural gap, not a compiler-recall finding; not fixed here per the freeze-and-observe instruction."
+}

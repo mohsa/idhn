@@ -1,0 +1,29 @@
+{
+  "task_id": "T08",
+  "family": "modify",
+  "ablated_capability": [
+    "filesystem",
+    "write",
+    "/workspace/src/dedupe.py"
+  ],
+  "baseline_tests_before": [
+    2,
+    1
+  ],
+  "baseline_tests_after": [
+    3,
+    0
+  ],
+  "ablated_container_exit_code": 1,
+  "ablated_tests_before": [
+    2,
+    1
+  ],
+  "ablated_tests_after": [
+    2,
+    1
+  ],
+  "run_id": "bench-ablate-T08",
+  "baseline_success": true,
+  "ablated_success": false
+}

@@ -1,0 +1,29 @@
+{
+  "task_id": "T20",
+  "family": "dependency",
+  "ablated_capability": [
+    "network",
+    "connect",
+    "registry.npmjs.org"
+  ],
+  "baseline_success": true,
+  "baseline_tests_before": [
+    0,
+    1
+  ],
+  "baseline_tests_after": [
+    1,
+    0
+  ],
+  "ablated_container_exit_code": 1,
+  "ablated_tests_before": [
+    0,
+    1
+  ],
+  "ablated_tests_after": [
+    0,
+    1
+  ],
+  "ablated_success": false,
+  "run_id": "bench-ablate-T20"
+}

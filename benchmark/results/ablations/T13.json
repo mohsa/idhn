@@ -1,0 +1,29 @@
+{
+  "task_id": "T13",
+  "family": "test",
+  "ablated_capability": [
+    "filesystem",
+    "write",
+    "/workspace/tests/parser.test.js"
+  ],
+  "baseline_tests_before": [
+    3,
+    1
+  ],
+  "baseline_tests_after": [
+    3,
+    2
+  ],
+  "ablated_container_exit_code": 1,
+  "ablated_tests_before": [
+    3,
+    1
+  ],
+  "ablated_tests_after": [
+    3,
+    1
+  ],
+  "run_id": "bench-ablate-T13",
+  "baseline_success": true,
+  "ablated_success": false
+}

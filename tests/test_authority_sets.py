@@ -1,6 +1,7 @@
 import json
 
 from idhn.audit.authority_sets import (
+    agent_infrastructure_authority,
     capability_class,
     compute_missing,
     compute_unnecessary,
@@ -8,6 +9,8 @@ from idhn.audit.authority_sets import (
     infrastructure_authority,
     network_events_from_run,
     predicted_from_decisions,
+    substrate_authority,
+    tool_authority,
 )
 from idhn.compiler.parser import CapabilityDecision
 
@@ -16,6 +19,35 @@ def test_infrastructure_authority_includes_codex_and_chatgpt():
     infra = infrastructure_authority()
     assert ("process", "exec", "codex") in infra
     assert ("network", "connect", "chatgpt.com") in infra
+
+
+def test_infrastructure_authority_is_the_union_of_three_sources():
+    assert infrastructure_authority() == (
+        agent_infrastructure_authority() | substrate_authority() | tool_authority()
+    )
+
+
+def test_agent_infrastructure_authority_is_codex_launcher_only():
+    agent = agent_infrastructure_authority()
+    assert ("process", "exec", "codex") in agent
+    assert ("network", "connect", "chatgpt.com") in agent
+    assert ("process", "exec", "cat") not in agent
+
+
+def test_substrate_authority_covers_ordinary_execution_binaries():
+    substrate = substrate_authority()
+    for binary in ("pwd", "ls", "cat", "rg", "python3", "npm", "git", "bash", "nl", "sha256sum"):
+        assert ("process", "exec", binary) in substrate
+    # Substrate is process-exec only -- it says nothing about what those
+    # binaries may read/write/reach, which stays task-scoped via P.
+    assert all(resource == "process" for resource, _, _ in substrate)
+
+
+def test_tool_authority_grants_npm_registry_and_pip_indexes():
+    tools = tool_authority()
+    assert ("network", "connect", "registry.npmjs.org") in tools
+    assert ("network", "connect", "pypi.org") in tools
+    assert ("network", "connect", "files.pythonhosted.org") in tools
 
 
 def test_compute_missing_uses_glob_matching_not_exact_equality():
@@ -131,12 +163,24 @@ def test_capability_class_infrastructure():
     assert capability_class(("network", "connect", "ab.chatgpt.com")) == "infrastructure"
 
 
+def test_capability_class_substrate_and_tool_authority_are_infrastructure():
+    # v0.2.1: substrate binaries and their tools' known operational
+    # requirements are part of the fixed floor now, not task authority.
+    assert capability_class(("process", "exec", "cat")) == "infrastructure"
+    assert capability_class(("process", "exec", "npm")) == "infrastructure"
+    assert capability_class(("network", "connect", "registry.npmjs.org")) == "infrastructure"
+
+
 def test_capability_class_tool_substrate_is_any_non_infra_process():
-    assert capability_class(("process", "exec", "cat")) == "tool_substrate"
-    assert capability_class(("process", "exec", "npm")) == "tool_substrate"
+    # cat/npm are now part of the fixed substrate floor (v0.2.1) and
+    # classify as infrastructure, not tool_substrate -- see
+    # test_capability_class_infrastructure. tool_substrate is still a
+    # reachable category for a process capability that ISN'T part of
+    # that floor (a genuinely task-specific binary).
+    assert capability_class(("process", "exec", "some-task-specific-tool")) == "tool_substrate"
 
 
 def test_capability_class_task_semantic_is_filesystem_and_network_and_git():
     assert capability_class(("filesystem", "write", "/workspace/src/parser.js")) == "task_semantic"
-    assert capability_class(("network", "connect", "registry.npmjs.org")) == "task_semantic"
+    assert capability_class(("network", "connect", "some-task-specific-api.example")) == "task_semantic"
     assert capability_class(("git", "run", "status")) == "task_semantic"

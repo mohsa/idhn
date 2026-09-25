@@ -713,6 +713,77 @@ are all still open, still un-started, and still each a new
 version compared against this frozen `v0.2-b0` baseline on identical
 tasks -- not edits to this run.
 
+## v0.2.1: consequence-based authority
+
+Full writeup: `benchmark/results/v0.2.1-summary.md`. v0.2-B's ablations
+found something more important than the recall number: `filesystem.read`
+had **no mechanical enforcement effect at all** --
+`idhn.enforcement.filesystem.build_mount_plan` only ever built mounts
+from `write` and `deny`; the base workspace mount was the whole real
+repo, read-only, regardless of what `read` declared. The decision: fix
+the authority model before touching the compiler or building escalation.
+Scope, held to tightly: make `read`/`write`/`deny` all mechanically
+enforceable (default-deny, not default-allow-minus-mask); separate
+execution substrate (ordinary shell/discovery binaries, granted as a
+fixed floor) from task authority; add tool authority (a substrate tool's
+own known operational requirements, e.g. `npm` needing its registry) as
+a third non-task authority source alongside agent infrastructure; re-run
+the six ablations and re-evaluate the frozen 24-task corpus under the
+corrected model, without recompiling.
+
+The fix: `build_mount_plan`'s base changed from a real-repo read-only
+bind mount to an empty tmpfs. Every `read` and `write` pattern now gets
+its own bind mount layered on top (`write` still implies read -- a `rw`
+mount is inherently readable); `deny` masks shadow both. A path covered
+by neither `read` nor `write` doesn't exist in the container at all.
+Verified against a real, throwaway container (no Codex, no quota cost)
+reproducing the exact required matrix (`/workspace/**` READ,
+`/workspace/src/**` WRITE, `/workspace/private/**` DENY ->
+`README.md` R/¬W, `src/parser.js` R/W, `private/canary.txt` ¬R/¬W) --
+all six cells passed. `idhn.audit.authority_sets.infrastructure_authority()`
+split into three composable sources (`agent_infrastructure_authority`,
+`substrate_authority`, `tool_authority`), still unioned for backward
+compatibility with every existing call site.
+
+**Result: the recall problem substantially disappears once execution
+machinery stops being counted as task authority** -- tool-substrate
+recall goes from 14% to genuinely 0% (the one remaining non-infra
+`process.exec` capability observed is a known trace-parser artifact, not
+a real miss), confirming it wasn't a compiler-reasoning gap, it was a
+benchmark category error. Task success holds at 20/22 (2 unjudgeable --
+see below), the same two real failures as before (T19's task-decomposition
+miss, T24's container-environment limitation) and nothing else, meaning
+the two tasks that failed originally were genuine findings, not artifacts
+of the old enforcement gap.
+
+Re-running the six ablations under the corrected model reproduces five
+of six unchanged -- and dramatically flips the sixth. T01's `filesystem.
+read` ablation, which had NO effect at all under v0.2-b0 (the agent
+produced the same correct diagnosis regardless), now genuinely blocks
+`src/` (`ENOENT`) -- and the agent, unable to see the file, produces a
+**wrong diagnosis** ("the repository has no `src` directory... restore or
+implement `src/parser.js`"), recommending a fix for a bug that doesn't
+exist. The mechanical success metric still reads PASS both times
+(diagnose success is "left the repo alone," unaffected either way) --
+visible only by reading the trace, which is the entire point of the
+ablation methodology.
+
+Two real, previously-dormant bugs surfaced by actually re-running this
+(not by design review): `_relpath`'s handling of a wildcard confined to
+the final path segment (`tests/*.py`) and of an explicit recursive glob
+(`src/**/*.js`) were both silently dropped under the old default-allow
+base (harmless -- the file was reachable anyway) and became real
+failures under default-deny (the whole directory vanished, breaking
+T11's and T18's test harnesses outright). Fixed by widening both to
+"mount the containing directory" for `read` only -- deliberately not for
+`write`, where the one pattern of this shape in the whole corpus has no
+directory prefix and would over-grant the entire workspace. A third,
+unfixed finding: T05 and T22 are unjudgeable because pytest's own import
+resolution depends on `conftest.py`'s mere presence (even empty) to put
+the repo root on `sys.path` -- not a compiler-recall failure by any
+existing miss-taxonomy cause, since nothing in the task text could imply
+an empty file's presence matters.
+
 ## Setup
 
 Requires Docker, Node/npm (for the Codex CLI, installed at image build
@@ -924,11 +995,26 @@ Codex runs. No more enforcement features added past this tag.
   grants currently have no mechanical effect) along the way. Full miss
   taxonomy shows no escalation-justifying distribution yet -- tool-
   substrate misses dominate and have a non-escalation explanation.
+- **v0.2.1 -- Consequence-based authority**: `filesystem.read` made
+  mechanically enforceable (default-deny base, not default-allow-minus-
+  mask); execution substrate and a new tool-authority source split out
+  of task authority into a three-part fixed floor (agent, substrate,
+  tool). Same 24 tasks, same frozen `compiler-v0.2-b0` decisions, only
+  leg 3 re-run under the corrected model -- see "v0.2.1" above. Result:
+  tool-substrate recall genuinely reaches ~0% (not just lower), task
+  success holds at 20/22 with the same two real failures as before, and
+  re-running the six ablations flips T01's `filesystem.read` ablation
+  from "no effect at all" to "the agent's diagnosis is now wrong" --
+  direct proof the enforcement gap v0.2-B's ablations found is closed.
+  Two real wildcard-handling bugs in the mount-plan translator found and
+  fixed along the way (dormant under the old model, active failures
+  under the new one); one real, unfixed finding recorded (pytest's
+  import resolution depends on `conftest.py`'s mere presence, invisible
+  to any compiler reasoning from task text).
 - **v0.2-C -- Escalation**: a denied-but-plausibly-legitimate operation
   becomes a narrow, human-in-the-loop grant request instead of a flat
-  denial. Not started -- the v0.2-B miss taxonomy doesn't show the
-  distribution (execution-state-dependent misses dominating) that would
-  justify it; tool-substrate misses dominate instead, with a different,
-  process-model explanation.
+  denial. Not started -- neither the v0.2-B nor the v0.2.1 miss taxonomy
+  shows the distribution (execution-state-dependent misses dominating)
+  that would justify it.
 - **v0.2-D -- Revocation**: a temporary escalation grant expires instead
   of quietly becoming permanent task authority. Not started.

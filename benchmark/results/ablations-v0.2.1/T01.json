@@ -1,0 +1,30 @@
+{
+  "task_id": "T01",
+  "family": "diagnose",
+  "ablated_capability": [
+    "filesystem",
+    "read",
+    "/workspace/src/**"
+  ],
+  "baseline_success": true,
+  "baseline_tests_before": [
+    3,
+    1
+  ],
+  "baseline_tests_after": [
+    3,
+    1
+  ],
+  "ablated_container_exit_code": 1,
+  "ablated_tests_before": [
+    0,
+    1
+  ],
+  "ablated_tests_after": [
+    0,
+    1
+  ],
+  "ablated_success": true,
+  "run_id": "bench-ablate-T01",
+  "note": "Dramatic reversal from the v0.2-b0 ablation (benchmark/results/ablations/T01.json), which found removing this exact read grant had NO effect at all. Under v0.2.1, src/ is genuinely invisible (ENOENT) once its read grant is removed, and the agent, confronted with \"Cannot find module '../src/parser'\" when it tries to run the tests, concludes -- wrongly -- \"The repository has no src directory... restore or implement src/parser.js\", recommending a fabricated fix for a file it cannot see, instead of the real operator-precedence bug in existing code. The mechanical task_succeeded() metric still reads True->True (diagnose success is \"left the repo alone\", which holds regardless -- the agent never had write access either way), so this finding is only visible by reading the trace, not the automated metric -- exactly the ground truth this ablation methodology exists to surface."
+}

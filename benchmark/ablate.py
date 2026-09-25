@@ -41,8 +41,24 @@ GENERATED_POLICIES_DIR = REPO_ROOT / "policies" / "generated"
 ABLATIONS_DIR = REPO_ROOT / "benchmark" / "results" / "ablations"
 
 
-def ablate(task_id: str, resource: str, operation: str, scope: str) -> dict:
-    baseline = json.loads((BENCHMARK_RUNS_DIR / f"{task_id}.json").read_text(encoding="utf-8"))
+def ablate(
+    task_id: str,
+    resource: str,
+    operation: str,
+    scope: str,
+    baseline_dir: Path = BENCHMARK_RUNS_DIR,
+    out_dir: Path = ABLATIONS_DIR,
+) -> dict:
+    """`baseline_dir`/`out_dir` let this same function re-run the six
+    v0.2-B ablations under the v0.2.1 authority model (see
+    benchmark/reinterpret.py's module docstring for why leg 3 has to be a
+    fresh real execution): `baseline_dir=benchmark/runs-v0.2.1` makes the
+    "PASS" side of the comparison the corrected model's own result
+    (`task_succeeded`, already computed there) rather than v0.2-b0's, and
+    `out_dir` keeps the two ablation result sets from overwriting each
+    other.
+    """
+    baseline = json.loads((baseline_dir / f"{task_id}.json").read_text(encoding="utf-8"))
     task_path = REPO_ROOT / "benchmark" / "tasks" / f"{task_id}.yaml"
     task_data = yaml.safe_load(task_path.read_text(encoding="utf-8"))
     repo_rel = task_data["repo"]
@@ -121,8 +137,8 @@ def ablate(task_id: str, resource: str, operation: str, scope: str) -> dict:
         "run_id": run_id,
     }
 
-    ABLATIONS_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = ABLATIONS_DIR / f"{task_id}.json"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{task_id}.json"
     out_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(
         f"[{task_id}] done: baseline_success={baseline_success} "
@@ -132,4 +148,9 @@ def ablate(task_id: str, resource: str, operation: str, scope: str) -> dict:
 
 
 if __name__ == "__main__":
-    ablate(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])
+    args = sys.argv[1:]
+    kwargs = {}
+    if len(args) > 4 and args[4] == "--v0.2.1":
+        kwargs["baseline_dir"] = REPO_ROOT / "benchmark" / "runs-v0.2.1"
+        kwargs["out_dir"] = REPO_ROOT / "benchmark" / "results" / "ablations-v0.2.1"
+    ablate(args[0], args[1], args[2], args[3], **kwargs)

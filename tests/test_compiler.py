@@ -87,7 +87,7 @@ def test_check_budget_rejects_unscoped_filesystem_write():
     )
     violations = check_budget(decisions)
     assert violations
-    assert "unscoped wildcard" in violations[0]
+    assert "forbidden outright" in violations[0]
 
 
 def test_check_budget_rejects_unscoped_network():
@@ -100,6 +100,22 @@ def test_check_budget_rejects_unscoped_network():
 
 def test_check_budget_allows_scoped_grants():
     decisions = parse_capability_ir(DECISION_YAML)
+    assert check_budget(decisions) == []
+
+
+def test_check_budget_rejects_forbidden_execution_primitives():
+    decisions = parse_capability_ir(
+        "- capability:\n    resource: process\n    operation: exec\n    scope: sudo\n  confidence: high\n  reason: just in case\n"
+    )
+    violations = check_budget(decisions)
+    assert violations
+    assert "forbidden outright" in violations[0]
+
+
+def test_check_budget_allows_ordinary_process_grants():
+    decisions = parse_capability_ir(
+        "- capability:\n    resource: process\n    operation: exec\n    scope: python3\n  confidence: high\n  reason: run the tests\n"
+    )
     assert check_budget(decisions) == []
 
 

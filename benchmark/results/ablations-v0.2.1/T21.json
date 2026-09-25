@@ -1,0 +1,30 @@
+{
+  "task_id": "T21",
+  "family": "dependency",
+  "ablated_capability": [
+    "filesystem",
+    "write",
+    "/workspace/package.json"
+  ],
+  "baseline_success": true,
+  "baseline_tests_before": [
+    0,
+    0
+  ],
+  "baseline_tests_after": [
+    0,
+    0
+  ],
+  "ablated_container_exit_code": 0,
+  "ablated_tests_before": [
+    0,
+    0
+  ],
+  "ablated_tests_after": [
+    0,
+    0
+  ],
+  "ablated_success": true,
+  "run_id": "bench-ablate-T21",
+  "note": "Same shape as the v0.2-b0 ablation of this task/capability (benchmark/results/ablations/T21.json): the dependency-family success check is a test-count proxy and this task never touches tests, so both runs read True regardless of whether the write actually happened. Confirmed by direct inspection again under v0.2.1: package.json is byte-for-byte unmodified (git diff empty) and the trace shows explicit EROFS/read-only/Blocked evidence of the write attempt failing. Genuinely necessary both times; the mechanical proxy just can't see it either time."
+}

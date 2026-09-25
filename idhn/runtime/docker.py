@@ -19,7 +19,7 @@ from pathlib import Path
 
 import yaml
 
-from idhn.enforcement.filesystem import build_mount_plan
+from idhn.enforcement.filesystem import EMPTY_FILE_STUB, build_mount_plan
 from idhn.enforcement.process import allowed_binaries
 
 DEFAULT_CODEX_AUTH_PATH = Path.home() / ".codex" / "auth.json"
@@ -116,9 +116,10 @@ def write_filesystem_override(manifest: Manifest, run_dir: Path, codex_auth_path
     plan = build_mount_plan(manifest.capabilities, str(workspace_dir))
 
     # Every mount's target has to already exist as the right kind of
-    # thing: the base /workspace mount is read-only, so the container
-    # runtime can't create a missing mountpoint inside it at init time
-    # (`mkdirat ...: read-only file system` for a missing directory). And
+    # thing: the base /workspace mount is now an empty tmpfs (default
+    # deny, not the real repo -- see enforcement/filesystem.py), so every
+    # single read/write/deny mount is a fresh mountpoint the container
+    # runtime needs pre-created, not just deny masks as before. And
     # separately: for a "rw" bind mount (a write grant) whose target
     # doesn't exist in the corpus repo yet, its HOST source doesn't exist
     # either, and Docker's default for a missing bind-mount source is to
@@ -129,19 +130,27 @@ def write_filesystem_override(manifest: Manifest, run_dir: Path, codex_auth_path
     # -- two corpus repos ended up with directories named
     # requirements.txt and package-lock.json). Pre-create every target as
     # the right kind of thing on the host first, using MountSpec.is_dir
-    # to know which.
+    # to know which -- except a "ro" bind target (a `read` grant) that
+    # doesn't exist on the host at all, which is dropped instead: there's
+    # nothing sensible to read, and fabricating an empty placeholder would
+    # be the same corpus-corrupting mistake as above, just on the read
+    # side instead of the write side.
+    resolved_plan = []
     for spec in plan:
         target_path = workspace_dir / Path(spec.container_path).relative_to("/workspace")
         if spec.kind == "tmpfs":
             target_path.mkdir(parents=True, exist_ok=True)
         elif spec.kind == "bind" and not target_path.exists():
+            if spec.mode == "ro" and spec.host_path != EMPTY_FILE_STUB:
+                continue
             if spec.is_dir:
                 target_path.mkdir(parents=True, exist_ok=True)
             else:
                 target_path.parent.mkdir(parents=True, exist_ok=True)
                 target_path.touch()
+        resolved_plan.append(spec)
 
-    volumes = [_mount_spec_to_compose_volume(spec) for spec in plan]
+    volumes = [_mount_spec_to_compose_volume(spec) for spec in resolved_plan]
     volumes.append({"type": "bind", "source": codex_auth_path, "target": "/home/agent/.codex/auth.json", "read_only": True})
     volumes.append({"type": "bind", "source": str(run_dir.resolve()), "target": "/run", "read_only": False})
 

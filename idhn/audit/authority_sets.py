@@ -11,6 +11,15 @@ P is what makes "M = E - (I union P)" a meaningful signal about the
 compiler rather than a repeat of the same infrastructure-blindness
 finding from v0.2-A's single data point.
 
+As of v0.2.1, I is three composable sources, not one undifferentiated
+set (agent_infrastructure_authority, substrate_authority, tool_authority
+below) -- v0.2-B's 24-task run found "infrastructure" had been doing
+double duty, conflating "what Codex needs to run at all" with "what
+execution substrate ANY task needs" (pwd/cat/ls/...) and "what a
+substrate tool itself needs" (npm's registry) -- three genuinely
+different, still all task-independent, things. infrastructure_authority()
+stays as their union so nothing downstream needs to change.
+
 A capability is a (resource, operation, scope) tuple. Set membership
 for comparison purposes is glob-aware (a granted "/workspace/src/**"
 covers an exercised "/workspace/src/parser.js"), not exact string
@@ -27,17 +36,101 @@ from idhn.enforcement.process import AGENT_INFRASTRUCTURE_BINARIES
 
 Capability = tuple[str, str, str]
 
-# Fixed, not task-conditioned -- what an agent needs to run at all,
-# independent of what any task asks for. See idhn.enforcement.process
-# (process side) and the M3 finding that motivated adding chatgpt.com to
-# every example manifest (network side).
-INFRASTRUCTURE_NETWORK_HOSTS = ["chatgpt.com", "*.chatgpt.com", "*.oaiusercontent.com"]
+# Fixed, not task-conditioned -- what Codex itself needs to run at all,
+# independent of what any task asks for or which tools it invokes. See
+# idhn.enforcement.process (process side) and the M3 finding that
+# motivated adding chatgpt.com to every example manifest (network side).
+AGENT_INFRASTRUCTURE_NETWORK_HOSTS = ["chatgpt.com", "*.chatgpt.com", "*.oaiusercontent.com"]
+
+# Backward-compatible alias -- INFRASTRUCTURE_NETWORK_HOSTS was the name
+# before v0.2.1 split "infrastructure" into agent/substrate/tool sources.
+INFRASTRUCTURE_NETWORK_HOSTS = AGENT_INFRASTRUCTURE_NETWORK_HOSTS
+
+# The execution substrate: ordinary shell/discovery/interpreter binaries
+# treated as a fixed floor of HOW the agent operates, not WHAT it's
+# authorized to do -- v0.2-B's 24-task run found the compiler being
+# scored on predicting these (14% substrate recall, dragging a 96%
+# task-semantic-recall compiler down to a 29% raw one) was measuring the
+# wrong layer entirely: idhn.enforcement.filesystem/network already gate
+# the actual CONSEQUENCE of running any given tool regardless of whether
+# the tool itself was "granted" (see idhn.enforcement.process's own
+# docstring). idhn.compiler.context.AVAILABLE_TOOLS's 10, plus `bash`
+# (the shell every one of Codex's own commands runs through, and which
+# has never once shown up as a missing/predicted capability across 24
+# tasks + 6 ablations -- it's reached some other way that never touches
+# this allowlist, but belongs here conceptually regardless), plus `nl`
+# and `sha256sum` (T01/T18's context-completeness gaps -- coreutils
+# discovery tools of the exact same kind, just never listed), plus `pip`
+# (T24's real, exercised install tool -- distinct from `python3`, which
+# is the interpreter, not the package manager). Deliberately
+# a superset of AVAILABLE_TOOLS, not identical to it: this list has to be
+# COMPLETE against what the corpus actually exercises for "tool-substrate
+# recall" to genuinely read N/A rather than a residual few percent that
+# misrepresents this fix as partial.
+PROCESS_SUBSTRATE_BINARIES = (
+    "pwd", "ls", "find", "cat", "rg", "python3", "pytest", "node", "npm", "git",
+    "bash", "nl", "sha256sum", "pip",
+)
+
+# Known operational network requirements of specific substrate tools --
+# e.g. `npm` reaching its registry even on tasks that never mention
+# dependencies (v0.2-B's M8 finding: 4 of the taxonomy's 55 misses, all
+# `network.connect: registry.npmjs.org`, all on tasks whose text never
+# mentions a dependency, driven by the agent's own choice to run `npm
+# test`/`npm install` as part of unrelated work). This is the concrete
+# form of "EffectiveGrant = ToolRequirement (subject to whatever else
+# denies it)", not "npm implies network *": only the specific hosts a
+# tool is actually known to need, and still filtered by an explicit
+# `deny` pattern at enforcement time the same way any other granted
+# capability is -- idhn.core.policy.PolicyEngine.decide() checks `deny`
+# before allow, unconditionally, regardless of a capability's source.
+# There's no separate "organizational ceiling" object to build; that
+# deny-first precedence already IS the ceiling.
+TOOL_AUTHORITY_REQUIREMENTS: dict[str, set[Capability]] = {
+    "npm": {("network", "connect", "registry.npmjs.org")},
+    "pip": {
+        ("network", "connect", "pypi.org"),
+        ("network", "connect", "files.pythonhosted.org"),
+    },
+}
+
+
+def agent_infrastructure_authority() -> set[Capability]:
+    """Agent authority: what Codex itself needs to run at all."""
+    items: set[Capability] = {("process", "exec", binary) for binary in AGENT_INFRASTRUCTURE_BINARIES}
+    items |= {("network", "connect", host) for host in AGENT_INFRASTRUCTURE_NETWORK_HOSTS}
+    return items
+
+
+def substrate_authority() -> set[Capability]:
+    """Execution-substrate authority: ordinary binaries the agent may
+    invoke regardless of task, distinct from what consequence running
+    them is allowed to have (that's filesystem/network, still
+    task-scoped via P).
+    """
+    return {("process", "exec", binary) for binary in PROCESS_SUBSTRATE_BINARIES}
+
+
+def tool_authority() -> set[Capability]:
+    """Tool authority: known operational requirements of substrate tools
+    (only for tools actually in the substrate floor, so this stays
+    coupled to what's actually grantable rather than every possible
+    tool's every possible host).
+    """
+    items: set[Capability] = set()
+    for tool in PROCESS_SUBSTRATE_BINARIES:
+        items |= TOOL_AUTHORITY_REQUIREMENTS.get(tool, set())
+    return items
 
 
 def infrastructure_authority() -> set[Capability]:
-    items: set[Capability] = {("process", "exec", binary) for binary in AGENT_INFRASTRUCTURE_BINARIES}
-    items |= {("network", "connect", host) for host in INFRASTRUCTURE_NETWORK_HOSTS}
-    return items
+    """I: the fixed floor, task-independent authority from all three
+    non-task sources -- agent, substrate, and tool. Kept as one function
+    (rather than requiring every caller to union three) so run_task.py,
+    summarize.py, and ablate.py need no changes; the sources are exposed
+    separately above for anyone who wants to reason about them apart.
+    """
+    return agent_infrastructure_authority() | substrate_authority() | tool_authority()
 
 
 def capability_class(capability: Capability) -> str:

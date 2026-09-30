@@ -28,11 +28,12 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
-from idhn.audit.codex_events import parse_codex_events
+from idhn.audit.codex_events import iter_command_executions, parse_codex_events
 from idhn.core.manifest import Manifest
 from idhn.core.models import ActionRequest, Decision, ExecutionContext
 from idhn.core.policy import PolicyEngine
@@ -177,6 +178,90 @@ def _process_overreach(manifest: Manifest, usage_records: list[dict[str, Any]]) 
     return result
 
 
+def _deny_targets(capabilities: dict[str, Any]) -> list[tuple[str, str]]:
+    """Every filesystem.deny pattern as (relative_form, absolute_form)
+    -- e.g. "/workspace/.env" -> (".env", "/workspace/.env"),
+    "/workspace/.github/**" -> (".github", "/workspace/.github"). Only
+    workspace-scoped patterns translate (same scope idhn.enforcement.
+    filesystem._relpath mechanically enforces); anything else is skipped
+    here too rather than guessed at.
+    """
+    fs = capabilities.get("filesystem", {}) or {}
+    targets: list[tuple[str, str]] = []
+    for pattern in fs.get("deny", []) or []:
+        if not pattern.startswith("/workspace/"):
+            continue
+        rel = pattern[len("/workspace/") :]
+        if rel.endswith("/**"):
+            rel = rel[: -len("/**")]
+        elif "*" in rel or "?" in rel:
+            continue
+        if rel:
+            targets.append((rel, f"/workspace/{rel}"))
+    return targets
+
+
+def _references_deny_target(token: str, relative_form: str, absolute_form: str) -> bool:
+    token = token.rstrip("/")
+    if token.startswith("./"):
+        token = token[2:]
+    if token in (relative_form, absolute_form):
+        return True
+    return token.startswith(relative_form + "/") or token.startswith(absolute_form + "/")
+
+
+def deny_masked_read_attempts(run_dir: Path, manifest: Manifest | None) -> list[dict[str, Any]]:
+    """Filesystem deny/masking is real enforcement -- a denied path is
+    bind-mounted over with empty content at the container level (see
+    idhn.enforcement.filesystem) -- but was never OBSERVABLE: v0.1 has no
+    read-level instrumentation at all, so a masked read looked identical
+    to "nothing happened" in every report. This doesn't add or change
+    any enforcement; it looks for evidence, in Codex's own command text,
+    that a deny-masked path was referenced as an ARGUMENT (not merely
+    visible in some unrelated command's OUTPUT -- `ls -la` listing
+    ".env" in a directory listing is not an access attempt on it; `cat
+    .env` or `rg -n . .github` is).
+
+    Deliberately scoped to the manifest's own small, fixed deny list --
+    NOT a general "did Codex read any file" detector. That's the
+    heuristic idhn.audit.codex_events' own docstring already rejected as
+    too fragile for writes ("no bounded set of ways to write a file from
+    a shell command"), and reading has the same problem. Matching
+    against a handful of known, explicit deny patterns is a much
+    narrower, bounded question than that.
+
+    A masked read always looks like a "succeeded" command from exit code
+    alone (empty content, no error) -- that's the mask working correctly,
+    not a residual gap, so these are reported separately from
+    _process_overreach (which treats "denied but succeeded" as a real
+    finding) rather than folded into it and misclassified.
+    """
+    if manifest is None:
+        return []
+    targets = _deny_targets(manifest.capabilities)
+    if not targets:
+        return []
+
+    attempts: list[dict[str, Any]] = []
+    for record in iter_command_executions(run_dir / "codex-events.jsonl"):
+        try:
+            tokens = shlex.split(record["command"])
+        except ValueError:
+            tokens = record["command"].split()
+        for token in tokens:
+            for relative_form, absolute_form in targets:
+                if _references_deny_target(token, relative_form, absolute_form):
+                    attempts.append(
+                        {
+                            "path": relative_form,
+                            "matched_argument": token,
+                            "command": record["command"],
+                            "succeeded": record["succeeded"],
+                        }
+                    )
+    return attempts
+
+
 def build_m3_report(run_dir: Path, manifest: Manifest | None) -> dict[str, Any]:
     run_dir = Path(run_dir)
     events = _read_network_events(run_dir)
@@ -238,6 +323,7 @@ def build_m3_report(run_dir: Path, manifest: Manifest | None) -> dict[str, Any]:
     granted = _granted_capabilities(manifest.capabilities) if manifest is not None else set()
     exercised = _exercised_capabilities(granted, network_usage + codex_usage)
     overreach = _process_overreach(manifest, codex_usage) if manifest is not None else {"blocked": [], "residual_gap": [], "unknown": []}
+    masked_reads = deny_masked_read_attempts(run_dir, manifest)
 
     return {
         "run_id": run_dir.name,
@@ -260,6 +346,7 @@ def build_m3_report(run_dir: Path, manifest: Manifest | None) -> dict[str, Any]:
         "blocked_attempts": overreach["blocked"],
         "residual_gaps": overreach["residual_gap"],
         "unknown_outcome_attempts": overreach["unknown"],
+        "deny_masked_read_attempts": masked_reads,
         "has_manifest": manifest is not None,
     }
 
@@ -294,10 +381,20 @@ def render_m3_report(report: dict[str, Any]) -> str:
     lines.append("")
 
     lines.append("Filesystem")
-    lines.append("  reads                   not observed in v0.1 (no read-level instrumentation yet)")
+    lines.append("  reads                   not observed in general -- v0.1 has no read-level")
+    lines.append("                          instrumentation for ordinary (allowed) reads")
     lines.append(f"  writes (agent trace)    {report['filesystem_writes']}")
     ground_truth_note = "ground truth: workspace content-hash diff" if report["filesystem_writes_ground_truth"] else "from agent trace only -- this run predates ground-truth observation"
     lines.append(f"  unique files written    {report['filesystem_unique_files_written']}  ({ground_truth_note})")
+    lines.append("")
+
+    masked_reads = report.get("deny_masked_read_attempts") or []
+    lines.append(f"Deny-masked filesystem reads   {len(masked_reads)}  (content served empty by the mount")
+    lines.append("                               mask -- see idhn.enforcement.filesystem; BLOCKED by")
+    lines.append("                               construction regardless of the command's own exit code,")
+    lines.append("                               never a residual gap)")
+    for v in masked_reads:
+        lines.append(f"  {v['path']:<20} matched {v['matched_argument']!r} in: {v['command']}")
     lines.append("")
 
     lines.append("Processes")

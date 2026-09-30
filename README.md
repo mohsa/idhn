@@ -813,6 +813,24 @@ Reproduced end to end after both fixes: task completion PASS, tests 3/4
 -> 4/4, the real `src/parser.js` write correctly reflected via ground
 truth, 0 residual gaps.
 
+**Follow-up**: deny-masked reads were also unobservable -- v0.1 never
+had read-level instrumentation at all, so an agent referencing a
+deny-masked path (`.env`, `.github/**`) looked identical to nothing
+happening. `idhn.audit.m3_report.deny_masked_read_attempts` scans
+Codex's own command text (not its output, so a directory listing that
+merely shows `.env` exists doesn't count) for arguments referencing one
+of the manifest's own deny patterns -- narrowly scoped to that small,
+fixed list, not a general "did Codex read any file" detector, which
+would have the same fragility problem already rejected for writes.
+Verified against real data: `run-20260930-70e387`'s own trace has a
+genuine content-read attempt against `.github/**` (`rg -n . src tests
+.github`, one command searching three directories at once), now
+correctly surfaced and correctly excluded from `residual_gaps` (a masked
+read looks like a "succeeded" command from exit code alone -- that's the
+mask working, not an enforcement hole). No enforcement or masking
+behavior changed -- purely new observability over the existing
+mechanism.
+
 ## Setup
 
 Requires Docker, Node/npm (for the Codex CLI, installed at image build

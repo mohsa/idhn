@@ -80,6 +80,59 @@ def _extract_binary(command: str) -> str | None:
     return Path(name).name if name else None
 
 
+def _unwrap_bash(command: str) -> str:
+    """Return the inner command text for `bash -lc "..."`/`sh -c "..."`
+    (every command_execution item is wrapped this way -- see
+    _extract_binary), or `command` unchanged if it isn't.
+    """
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return command
+    if parts and Path(parts[0]).name in ("bash", "sh") and len(parts) >= 3 and parts[1] in ("-lc", "-c"):
+        return parts[2]
+    return command
+
+
+def iter_command_executions(path: Path) -> list[dict[str, Any]]:
+    """Every command_execution item's inner command text (bash -lc "..."
+    unwrapped, but NOT reduced to just the binary name) and outcome, in
+    order.
+
+    Lower-level than parse_codex_events' process.exec records, which
+    only keep the binary that ran -- callers that need to know what a
+    command actually referenced as an ARGUMENT (idhn.audit.m3_report's
+    deny-masked-read detection: did a command's own text reference a
+    deny-listed path, as opposed to that path merely appearing in some
+    unrelated command's OUTPUT, e.g. `ls -la` listing it) use this
+    instead of re-parsing the JSONL themselves.
+    """
+    if not path.exists():
+        return []
+
+    results: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "item.completed":
+                continue
+            item = event.get("item")
+            if not isinstance(item, dict) or item.get("type") != "command_execution":
+                continue
+            command = _first(item, "command", "cmd")
+            if isinstance(command, list):
+                command = " ".join(str(part) for part in command)
+            if isinstance(command, str) and command.strip():
+                results.append({"command": _unwrap_bash(command.strip()), "succeeded": _succeeded(item)})
+    return results
+
+
 def _succeeded(item: dict[str, Any]) -> bool | None:
     """Best-effort outcome for a command_execution/file_change item.
 

@@ -1,10 +1,13 @@
-# Dogfood run `run-20260928-da17ce`: two observability/harness bugs
+# Dogfood run `run-20260928-da17ce`: two observability/harness bugs,
+plus a follow-up observability gap
 
 First manual dogfood run of `idhn run` under the v0.2.1 authority model
 (default-deny filesystem enforcement, substrate/tool authority split).
 Found two real bugs, both in observability/test-harness code, neither in
 the enforcement model itself. Reproduced, root-caused, fixed, and
-re-verified end to end (`run-20260930-70e387`).
+re-verified end to end (`run-20260930-70e387`). A follow-up request on
+the same run added observability for deny-masked reads (below) --
+enforcement itself unchanged throughout.
 
 ## Bug 1: `before-tests.log`/`after-tests.log` show `Cannot find module
 '/workspace/tests'`
@@ -211,3 +214,44 @@ Residual gaps             0  (denied by policy but succeeded anyway -- a real fi
 `git diff --stat` exactly. Codex's fix was the identical, correct
 precedence-handling change as the original run. Full existing test suite
 (91 tests, including the two new regression tests) passes.
+
+## Follow-up: deny-masked reads were also unobservable
+
+Reading `codex-events.jsonl` for both runs closely shows Codex's own
+exploration commands (`ls -la`, `rg --files --hidden`) list `.env` --
+it's a real file, deny-masked, so it shows up in a directory listing
+exactly like everything else, just empty. Neither run's Codex actually
+tried to read its *content*. `run-20260930-70e387`'s trace does contain
+a genuine content-read attempt against a different deny-masked path,
+though: `rg -n . src tests .github` searches file contents across three
+directories at once, one of which (`.github/**`) is deny-masked. Before
+this fix, none of this was visible anywhere in the report -- v0.1 never
+had read-level instrumentation at all, so a masked read looked
+identical to nothing happening.
+
+Fixed by adding `idhn.audit.m3_report.deny_masked_read_attempts`: it
+scans Codex's own command text (via a new low-level accessor,
+`idhn.audit.codex_events.iter_command_executions`) for arguments that
+reference one of the manifest's own (small, fixed) `filesystem.deny`
+patterns. Deliberately narrow -- not a general "did Codex read any
+file" detector (the same class of heuristic already rejected for writes
+as "too fragile," and reading has the same unbounded-shapes problem),
+just a bounded check against the handful of paths the manifest already
+names. Checks the command's own text, not its output, so `ls -la`
+listing `.env` in a directory enumeration correctly does NOT count as an
+access attempt -- only a path appearing as an argument does. A masked
+read looks like a "succeeded" command from exit code alone (empty
+content, no error), so these are reported in their own section rather
+than folded into `residual_gaps` (which specifically means "denied but
+NOT actually blocked" -- the opposite finding).
+
+No change to `idhn/enforcement/filesystem.py` or any masking behavior --
+purely new observability over the existing, unchanged mechanism.
+Verified against real data: regenerating the `run-20260930-70e387`
+report now shows the genuine `.github` read attempt, correctly
+attributed to the exact command, correctly excluded from residual gaps.
+`tests/test_deny_masked_reads.py` covers the `.env`-shaped case
+directly (the user's own example) plus the real `.github`-via-`rg`
+shape, and two negative cases (an `ls -la` listing, and a
+similarly-prefixed-but-different filename `.environment`) to guard
+against false positives.

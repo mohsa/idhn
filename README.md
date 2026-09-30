@@ -784,6 +784,35 @@ the repo root on `sys.path` -- not a compiler-recall failure by any
 existing miss-taxonomy cause, since nothing in the task text could imply
 an empty file's presence matters.
 
+## Post-v0.2.1 dogfood fixes
+
+Full writeup: `docs/dogfood-run-20260928-da17ce.md`. The first manual
+`idhn run` under v0.2.1 surfaced two real bugs -- both observability/
+test-harness issues, neither an enforcement-model bug, though both
+initially looked like one right after a major enforcement change:
+
+- `before-tests.log`/`after-tests.log` showed `Cannot find module
+  '/workspace/tests'`. Reproduced with zero Docker and zero IDHN
+  involved: `node --test <bare-directory>` fails this way under Node
+  22/25, independent of anything this project does.
+  `lab/repos/toy-app/package.json`'s `"test"` script used that broken
+  bare-directory form (`benchmark/corpus/js-repo-2`'s already used the
+  working glob form) -- fixed to `node --test tests/*.test.js`.
+- A real `src/parser.js` edit reported as `filesystem_writes: 0`.
+  Codex made the fix via an inline `node <<'NODE' ... fs.writeFileSync
+  NODE` heredoc -- opaque shell text `idhn.audit.codex_events` has no
+  way to recognize as a write (a previously-documented gap; the write
+  itself was correctly allowed by enforcement the whole time, this was
+  purely an audit-trail miss). Fixed with a new ground-truth observer,
+  `idhn.audit.filesystem_diff`: a content-hash snapshot of the workspace
+  before and after each `idhn run`, independent of how a write happened.
+
+Neither fix touches `idhn/enforcement/filesystem.py`,
+`idhn/enforcement/process.py`, or any manifest/policy semantics.
+Reproduced end to end after both fixes: task completion PASS, tests 3/4
+-> 4/4, the real `src/parser.js` write correctly reflected via ground
+truth, 0 residual gaps.
+
 ## Setup
 
 Requires Docker, Node/npm (for the Codex CLI, installed at image build

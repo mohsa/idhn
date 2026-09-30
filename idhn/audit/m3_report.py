@@ -65,6 +65,23 @@ def _read_int(path: Path) -> int | None:
         return None
 
 
+def _read_observed_writes(run_dir: Path) -> list[str] | None:
+    """Ground-truth changed-file list from idhn.audit.filesystem_diff
+    (idhn.runtime.docker.DockerRuntime.start writes this), or None for a
+    run that predates it / didn't go through that runtime. See
+    build_m3_report for how this and the codex-events-derived write
+    count are combined -- and why they're allowed to disagree.
+    """
+    path = run_dir / "observed-filesystem-writes.json"
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data if isinstance(data, list) else None
+
+
 def _read_network_events(run_dir: Path) -> list[dict[str, Any]]:
     events_path = run_dir / "events.jsonl"
     if not events_path.exists():
@@ -193,6 +210,22 @@ def build_m3_report(run_dir: Path, manifest: Manifest | None) -> dict[str, Any]:
     fs_writes = [r for r in codex_usage if r["resource"] == "filesystem"]
     process_execs = [r for r in codex_usage if r["resource"] == "process"]
 
+    # Ground truth (idhn.audit.filesystem_diff, via DockerRuntime.start)
+    # subsumes fs_writes' file list whenever it's available: a real
+    # content change shows up here regardless of whether Codex reported
+    # it through file_change or an opaque shell command, whereas
+    # fs_writes only ever sees the former. Not unioned as a heuristic --
+    # every file file_change reports is, definitionally, also a real
+    # content change, so ground truth is a superset, not a second guess.
+    # None means this run predates the observer (no known-changed-files
+    # signal at all), so unique_files_written falls back to the
+    # trace-derived set alone, same as before this existed.
+    observed_writes = _read_observed_writes(run_dir)
+    if observed_writes is not None:
+        unique_files_written = set(observed_writes)
+    else:
+        unique_files_written = {r["target"] for r in fs_writes}
+
     start_ts = _read_int(run_dir / "codex-start.ts")
     end_ts = _read_int(run_dir / "codex-end.ts")
     duration_seconds = (end_ts - start_ts) if start_ts is not None and end_ts is not None else None
@@ -213,7 +246,8 @@ def build_m3_report(run_dir: Path, manifest: Manifest | None) -> dict[str, Any]:
         "tests_after": after,
         "duration_seconds": duration_seconds,
         "filesystem_writes": len(fs_writes),
-        "filesystem_unique_files_written": len({r["target"] for r in fs_writes}),
+        "filesystem_unique_files_written": len(unique_files_written),
+        "filesystem_writes_ground_truth": observed_writes is not None,
         "process_executions": len(process_execs),
         "network_direct_allowed": direct_allowed,
         "network_direct_denied": direct_denied,
@@ -261,8 +295,9 @@ def render_m3_report(report: dict[str, Any]) -> str:
 
     lines.append("Filesystem")
     lines.append("  reads                   not observed in v0.1 (no read-level instrumentation yet)")
-    lines.append(f"  writes                  {report['filesystem_writes']}")
-    lines.append(f"  unique files written    {report['filesystem_unique_files_written']}")
+    lines.append(f"  writes (agent trace)    {report['filesystem_writes']}")
+    ground_truth_note = "ground truth: workspace content-hash diff" if report["filesystem_writes_ground_truth"] else "from agent trace only -- this run predates ground-truth observation"
+    lines.append(f"  unique files written    {report['filesystem_unique_files_written']}  ({ground_truth_note})")
     lines.append("")
 
     lines.append("Processes")

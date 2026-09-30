@@ -19,6 +19,8 @@ from pathlib import Path
 
 import yaml
 
+from idhn.audit.filesystem_diff import diff as diff_workspace_snapshots
+from idhn.audit.filesystem_diff import snapshot as snapshot_workspace
 from idhn.enforcement.filesystem import EMPTY_FILE_STUB, build_mount_plan
 from idhn.enforcement.process import allowed_binaries
 
@@ -203,6 +205,19 @@ class DockerRuntime(Runtime):
         stdout_path = run_dir / "stdout.log"
         stderr_path = run_dir / "stderr.log"
 
+        # Ground-truth filesystem-write observation (idhn.audit.
+        # filesystem_diff): a content-hash snapshot taken right before the
+        # container starts and right after it exits, independent of
+        # whether Codex reported the write through its structured
+        # file_change tool or an opaque shell command -- see that
+        # module's docstring for why (a real write via an inline heredoc
+        # was observed reporting zero filesystem writes despite
+        # enforcement correctly allowing and the file genuinely
+        # changing). The bind mounts make workspace_dir on the host the
+        # SAME files the container writes to, not a copy, so snapshotting
+        # it from here needs no access into the container at all.
+        before_snapshot = snapshot_workspace(workspace_dir)
+
         with stdout_path.open("wb") as out, stderr_path.open("wb") as err:
             result = subprocess.run(
                 [
@@ -223,6 +238,12 @@ class DockerRuntime(Runtime):
             env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+        )
+
+        after_snapshot = snapshot_workspace(workspace_dir)
+        changed_paths = diff_workspace_snapshots(before_snapshot, after_snapshot)
+        (run_dir / "observed-filesystem-writes.json").write_text(
+            json.dumps(sorted(changed_paths), indent=2), encoding="utf-8"
         )
 
         return result.returncode

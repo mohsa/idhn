@@ -27,3 +27,10 @@ packages = ["idhn"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# "docker" tests spin up the real compose topology (build + start
+# multiple containers, real network egress to example.com/wikipedia.org)
+# -- excluded from the default run so `pytest`/`pytest -q` stays fast and
+# Docker-independent, the same way it's always been. Run them explicitly:
+# pytest -m docker tests/integration
+markers = ["docker: requires Docker and real network access; excluded by default, see tests/integration/"]
+addopts = "-m 'not docker'"

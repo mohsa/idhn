@@ -1,0 +1,45 @@
+version: "0.1"
+
+# Dedicated policy for tests/integration/test_network_isolation.py --
+# allows exactly one real external host so "proxy-aware allowed traffic
+# works" and "proxy-aware forbidden traffic is rejected" are both
+# exercised against a real gateway policy decision, not just inferred.
+# Deliberately doesn't include chatgpt.com/registry.npmjs.org etc. --
+# these tests never invoke Codex, they run raw probe scripts directly,
+# so there's no agent-infrastructure traffic to allow for.
+
+task:
+  id: "network-isolation-test"
+  description: "Verify proxy-aware allow/deny and direct-egress isolation (no Codex invoked)."
+
+capabilities:
+
+  filesystem:
+    read: []
+    write: []
+    deny:
+      - "/workspace/.env"
+      - "/home/**"
+      - "/root/**"
+
+  network:
+    default: deny
+    allow:
+      - "example.com"
+
+  process:
+    allow:
+      - "python3"
+
+  git:
+    allow: []
+    deny:
+      - "push"
+
+  secrets:
+    default: deny
+
+limits:
+  duration: "5m"
+  cpu: 1
+  memory: "512m"

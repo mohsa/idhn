@@ -831,6 +831,41 @@ mask working, not an enforcement hole). No enforcement or masking
 behavior changed -- purely new observability over the existing
 mechanism.
 
+**Follow-up**: a later dogfood run (`run-20261003-867c08`) had Codex use
+Node's native `https.get`, which ignores `HTTP_PROXY`/`HTTPS_PROXY`
+entirely -- it failed with `getaddrinfo EAI_AGAIN example.com`, and the
+report showed `Network Blocked 0` because the request never reached the
+gateway. That's the desired outcome, but "properly contained" and
+"instrumentation missed it" look identical from a report alone, so this
+was verified mechanically rather than assumed: full writeup,
+`docs/network-isolation-verification.md`.
+
+Mechanism: `docker/compose.yaml`'s `internal` network is declared
+`internal: true` -- Docker builds it with no route to the outside world
+at all (no NAT/masquerade rule), regardless of whether anything inside
+respects a proxy env var. `agent` joins only `internal`; `gateway` joins
+both `internal` and `external`, making it the one container with an
+actual route out. `tests/integration/test_network_isolation.py` (new,
+marked `docker`, excluded from the default `pytest` run -- `pytest -m
+docker tests/integration`) proves this against the real topology, not
+by reasoning about the compose file: direct DNS resolution fails
+(`gaierror`), a raw TCP connect to a hardcoded public IP fails
+(`Network is unreachable` -- rules out "just a DNS problem"), a second
+proxy-ignoring HTTPS client fails the same way, while proxy-aware
+traffic to an allowed host succeeds through the gateway (logged as a
+real `allow` decision) and to a forbidden host is rejected (logged
+`deny`/`default_deny`). `tests/test_compose_topology.py` adds a fast,
+Docker-free static check of the same two YAML properties, run every
+time. No enforcement, topology, or policy code changed -- the tests
+found no bypass.
+
+Also documented: the observability distinction between "denied by the
+gateway" (an `events.jsonl` entry exists, with a `reason`) and "direct
+egress prevented by network isolation before reaching the gateway" (no
+entry exists at all, because the gateway's code never ran) -- the first
+dogfood run's `Network Blocked 0` was the second case, not an
+instrumentation gap, and the two must not be read as the same finding.
+
 ## Setup
 
 Requires Docker, Node/npm (for the Codex CLI, installed at image build

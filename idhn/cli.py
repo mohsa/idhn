@@ -18,6 +18,7 @@ from idhn.audit.m4_report import build_m4_report, render_m4_report
 from idhn.audit.report import build_report, render_text_report
 from idhn.compiler.compiler import compile_task
 from idhn.compiler.context import gather_context
+from idhn.compiler.materialize import MaterializeError, materialize
 from idhn.core.manifest import ManifestError, load_manifest
 from idhn.core.manifest import validate as validate_manifest
 from idhn.runtime.docker import DockerRuntime, read_canary_value, run_codex_prompt
@@ -91,6 +92,16 @@ def compile_cmd(workspace_path: str | None, run_id: str | None, task: str) -> No
     run_dir = DEFAULT_RUNS_DIR / execution_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    # `idhn materialize` (below) needs the task text back to build a
+    # manifest's task.description -- compiled-envelope.yaml never carried
+    # it (it's just the flat capability-decision list), so without this
+    # a materialize run for an older compile run has nothing to recover
+    # it from except re-parsing the raw prompt text. Written up front,
+    # before compile_task runs, so it exists even for a run that goes on
+    # to fail parsing/validation/budget.
+    with (run_dir / "compile-meta.json").open("w", encoding="utf-8") as f:
+        json.dump({"task": task, "workspace": str(workspace_dir)}, f, indent=2)
+
     click.echo(f"IDHN compile {execution_id}")
     click.echo(f"  workspace: {workspace_dir}")
     click.echo(f"  languages: {', '.join(context.languages) or 'unknown'}")
@@ -128,6 +139,56 @@ def compile_cmd(workspace_path: str | None, run_id: str | None, task: str) -> No
         for violation in result.budget_violations:
             click.echo(f"  - {violation}", err=True)
         sys.exit(1)
+
+
+@main.command()
+@click.argument("compile_run_id")
+@click.option("--task", "task_override", default=None, help="Task description for the generated manifest. Required if the compile run predates compile-meta.json (no other default exists -- see idhn/compiler/materialize.py).")
+@click.option("--out", "out_path", default=None, type=click.Path(), help="Where to write the manifest (default: runs/<compile-run-id>/materialized-manifest.yaml).")
+def materialize_cmd(compile_run_id: str, task_override: str | None, out_path: str | None) -> None:
+    """Deterministically convert a compile run's Capability IR into an
+    enforceable policy manifest (no LLM call -- see
+    idhn/compiler/materialize.py).
+
+    Does NOT run Codex. This is a deliberate human-review point between
+    `idhn compile` and `idhn run`: inspect the generated manifest, run
+    `idhn validate` on it, and only then pass it to `idhn run --policy`.
+    """
+    run_dir = DEFAULT_RUNS_DIR / compile_run_id
+    envelope_path = run_dir / "compiled-envelope.yaml"
+    if not envelope_path.exists():
+        click.echo(f"no compiled envelope found: {envelope_path}", err=True)
+        sys.exit(1)
+
+    with envelope_path.open("r", encoding="utf-8") as f:
+        envelope = yaml.safe_load(f) or []
+
+    meta_path = run_dir / "compile-meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+    task_description = task_override or meta.get("task")
+    if not task_description:
+        click.echo(
+            f"no task description available: {meta_path} doesn't exist (this compile run predates it) "
+            "and --task wasn't given. Pass --task explicitly.",
+            err=True,
+        )
+        sys.exit(1)
+
+    try:
+        result = materialize(envelope, task_id=f"materialized-{compile_run_id}", task_description=task_description)
+    except MaterializeError as exc:
+        click.echo(f"MATERIALIZE FAILED -- compiled envelope cannot become an enforceable manifest:\n{exc}", err=True)
+        sys.exit(1)
+
+    out = Path(out_path) if out_path else run_dir / "materialized-manifest.yaml"
+    with out.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(result.manifest_data, f, sort_keys=False)
+
+    click.echo(f"IDHN materialize {compile_run_id}")
+    click.echo(f"  task-predicted capabilities:  {len(result.predicted)}")
+    click.echo(f"  infrastructure capabilities:  {len(result.infrastructure)}  (agent + substrate + tool, fixed floor)")
+    click.echo(f"  manifest:                     {out}")
+    click.echo(f"\nnext: idhn validate {out}")
 
 
 @main.command()

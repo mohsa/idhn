@@ -917,6 +917,56 @@ original mixed task end to end and is the regression test: it fails if
 a real IDHN Codex run ever exposes an out-of-band capability the policy
 doesn't grant.
 
+## `idhn compile` → `idhn materialize` → `idhn validate` → `idhn run`
+
+Full writeup: `docs/compile-materialize-run.md`. The capability compiler
+(v0.2-A/B/v0.2.1) produced a Capability IR but was never wired into
+enforcement -- there was no bridge from `compiled-envelope.yaml` to a
+manifest `idhn run` could use. `idhn materialize <compile-run-id>`
+(new) is that bridge: a single deterministic conversion step, no LLM
+call, built entirely from already-existing pieces --
+`idhn.compiler.parser`'s structural validation and
+`idhn.compiler.budget`'s check re-run from scratch (the file on disk is
+never trusted just because it's shaped right -- `idhn compile` writes
+`compiled-envelope.yaml` before checking budget violations), unioned
+with `idhn.audit.authority_sets.infrastructure_authority()` (the same
+fixed agent/substrate/tool floor v0.2.1 already established) via
+`to_manifest_capabilities` (the same function the v0.2-B/v0.2.1
+benchmark pipeline already uses internally), then validated one final
+time through `idhn.core.manifest.validate()` -- the same check every
+hand-written `policies/examples/*.yaml` is held to.
+
+Confidence/reason are compiler metadata, never consulted by
+materialization (verified: two envelopes differing only in those fields
+produce byte-for-byte identical capabilities). Deny/default-deny
+semantics can't be touched by the compiler at all, not just by
+convention -- its schema has no `deny` operation to propose, and
+`to_manifest_capabilities` hardcodes the deny list and
+`network.default`/`secrets.default` unconditionally. Zero task network
+capability stays zero *task* network access -- `network.default` stays
+`deny`, and only the fixed infrastructure/tool-floor hosts appear, never
+a host the compiled IR never named. An exact write scope (e.g.
+`/workspace/modules/evaluation/matcher.py`) round-trips unchanged, never
+widened to a directory or glob. Any malformed IR, budget violation, or
+manifest that somehow still fails validation raises `MaterializeError`
+and produces nothing -- no partial manifest ever reaches disk.
+
+Deliberately does not run Codex as part of materialization -- a human
+review point between compile and run, by design, for this dogfood
+phase. Verified against a real dogfood compile run from an external
+repository (`compile-20261004-340a00`, not modified by this work):
+materialize → inspect → `idhn validate` → `OK`, exact write scopes
+preserved, network capabilities limited to the fixed floor (the
+compiled IR proposed none of its own).
+
+Known limitations (none touch enforcement): `secrets` capabilities are
+silently dropped by `to_manifest_capabilities`'s existing bucket logic
+(pre-existing, unrelated to this change, flagged for whoever next adds
+secrets support); the materialized manifest carries no provenance split
+between task-predicted and infrastructure-floor capabilities (the
+schema has no room for it, and enforcement doesn't need it -- the CLI's
+stdout reports both counts separately as a partial mitigation).
+
 ## Setup
 
 Requires Docker, Node/npm (for the Codex CLI, installed at image build

@@ -33,7 +33,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
-from idhn.audit.codex_events import iter_command_executions, parse_codex_events
+from idhn.audit.codex_events import iter_command_executions, out_of_band_items, parse_codex_events
 from idhn.core.manifest import Manifest
 from idhn.core.models import ActionRequest, Decision, ExecutionContext
 from idhn.core.policy import PolicyEngine
@@ -324,6 +324,7 @@ def build_m3_report(run_dir: Path, manifest: Manifest | None) -> dict[str, Any]:
     exercised = _exercised_capabilities(granted, network_usage + codex_usage)
     overreach = _process_overreach(manifest, codex_usage) if manifest is not None else {"blocked": [], "residual_gap": [], "unknown": []}
     masked_reads = deny_masked_read_attempts(run_dir, manifest)
+    out_of_band = out_of_band_items(run_dir / "codex-events.jsonl")
 
     return {
         "run_id": run_dir.name,
@@ -347,6 +348,7 @@ def build_m3_report(run_dir: Path, manifest: Manifest | None) -> dict[str, Any]:
         "residual_gaps": overreach["residual_gap"],
         "unknown_outcome_attempts": overreach["unknown"],
         "deny_masked_read_attempts": masked_reads,
+        "out_of_band_capabilities": out_of_band,
         "has_manifest": manifest is not None,
     }
 
@@ -437,5 +439,15 @@ def render_m3_report(report: dict[str, Any]) -> str:
         lines.append(f"Unknown outcome           {len(unknown)}  (denied by policy, no success/failure signal available)")
         for v in unknown:
             lines.append(f"  {v['resource']}.{v['operation']:<6} {v['target']}  ({v['reason']})")
+
+    out_of_band = report.get("out_of_band_capabilities") or []
+    lines.append("")
+    lines.append(f"Out-of-band capabilities  {len(out_of_band)}  (executed via Codex's own backend, NOT inside")
+    lines.append("                          this container -- no filesystem/process/network enforcement")
+    lines.append("                          IDHN runs can see or govern these; see")
+    lines.append("                          docs/web-search-out-of-band-capability.md)")
+    for v in out_of_band:
+        detail = v.get("action") or v.get("query") or ""
+        lines.append(f"  {v.get('type', '?')}: {detail}")
 
     return "\n".join(lines)

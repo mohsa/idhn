@@ -866,6 +866,57 @@ entry exists at all, because the gateway's code never ran) -- the first
 dogfood run's `Network Blocked 0` was the second case, not an
 instrumentation gap, and the two must not be read as the same finding.
 
+**Follow-up -- a different kind of bypass**: a mixed dogfood run
+(`run-20261004-e73ac2`) correctly kept `/workspace/.env` masked, but a
+request to `https://example.com` (not in `network.allow`) got real page
+content back via a `web_search`/`open_page` item in Codex's own event
+trace -- with zero entries in the gateway's log, because the request
+never touched the container's network namespace at all. Full writeup:
+`docs/web-search-out-of-band-capability.md`.
+
+This is a genuinely different boundary than the container/network one
+above: Codex's native `web_search` tool executes on OpenAI's own
+backend, not as a process inside the container, so no amount of Docker
+network isolation or gateway policy can ever see or govern it -- the
+same way a firewall around a contractor's laptop doesn't stop them from
+looking something up themselves. Root-caused directly: Codex's own CLI
+confirms "web search is enabled by default" (surfaced via its own
+deprecation error when probed) for every `codex exec` invocation,
+independent of anything IDHN's manifest or adapter does. Codex
+officially supports disabling it -- a top-level `web_search="disabled"`
+config value, confirmed via `--strict-config` and live reproduction, not
+a guess -- so `idhn/adapters/codex.py`'s `CodexAdapter.command()` now
+passes `-c web_search="disabled"` by default. Reproduced before (real
+page content returned, nothing in the gateway log) and after (no
+`web_search` item at all; Codex's fallback to an ordinary shell command
+correctly goes through the container network and gets denied by gateway
+policy, reported honestly rather than silently succeeding).
+
+`idhn.audit.codex_events.out_of_band_items` (new) is a general
+detector, not a `web_search`-specific one: it flags any event-stream
+item whose type isn't one of the known-local shapes surveyed across
+every trace this project has ever recorded (`agent_message`,
+`command_execution`, `file_change`, `error`), so a future provider-side
+tool this project hasn't seen yet gets flagged too. Surveying history
+with it found `web_search` already present in 10 earlier
+v0.2-B/v0.2.1 benchmark runs (package-research `search` actions on
+dependency-family tasks, not fetches of forbidden content) -- a real,
+now-documented limitation of what those frozen results' "exercised
+capability" accounting could see, not retroactively edited. Three other
+provider-mediated capabilities (`browser_use`, `computer_use`, `apps`)
+were confirmed to exist as real, non-trivial Codex config keys of the
+same general shape, but their correct disable syntax wasn't determined
+within reasonable effort -- documented as an open limitation rather than
+guessed at, per instruction not to invent a brittle workaround.
+
+No change to `docker/compose.yaml`, `idhn/network/proxy.py`,
+`idhn/network/callers.py`, or any filesystem/process/network enforcement
+-- the fix is entirely in what config Codex itself launches with.
+`tests/integration/test_codex_web_search_containment.py` reproduces the
+original mixed task end to end and is the regression test: it fails if
+a real IDHN Codex run ever exposes an out-of-band capability the policy
+doesn't grant.
+
 ## Setup
 
 Requires Docker, Node/npm (for the Codex CLI, installed at image build

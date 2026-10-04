@@ -32,6 +32,25 @@ import shlex
 from pathlib import Path
 from typing import Any
 
+# Every item type a real run has ever produced that executes LOCALLY,
+# inside the agent container -- subject to IDHN's filesystem/process
+# mount+PATH enforcement (command_execution, file_change) or carrying no
+# resource access at all (agent_message, error). Surveyed directly
+# against every codex-events.jsonl this project has ever recorded, not
+# guessed from documentation (see docs/web-search-out-of-band-capability.md
+# for the full survey, including the item types that are NOT in this set
+# -- `web_search`, confirmed to execute entirely on Codex's own backend,
+# reaching the real internet without ever touching the container's
+# network namespace or the IDHN gateway).
+#
+# out_of_band_items() below treats anything NOT in this set as suspect by
+# construction -- a newly-introduced Codex tool this project has never
+# seen would also be flagged, not silently passed through, which is the
+# point: this is deliberately a denylist-of-the-complement (allowlist the
+# known-local shapes, flag everything else) rather than a list of named
+# out-of-band tools to keep growing by hand.
+KNOWN_LOCAL_ITEM_TYPES = frozenset({"agent_message", "command_execution", "file_change", "error"})
+
 
 def _first(d: dict[str, Any], *keys: str) -> Any:
     for key in keys:
@@ -214,6 +233,45 @@ def parse_codex_events(path: Path) -> list[dict[str, Any]]:
                             )
 
     return records
+
+
+def out_of_band_items(path: Path) -> list[dict[str, Any]]:
+    """Every completed item whose type is NOT one of KNOWN_LOCAL_ITEM_TYPES
+    -- i.e. something Codex did that did not execute as a process or file
+    edit inside this container at all. Returns the raw item dicts
+    (whatever shape that tool happens to use), not normalized capability
+    records -- there's no (resource, operation, target) shape to
+    normalize to in general, since by definition this covers tools IDHN
+    has no model of.
+
+    Confirmed directly (docs/web-search-out-of-band-capability.md): a
+    `web_search`/`open_page` item fetches the real page using Codex's own
+    backend infrastructure, never touching the agent's network namespace
+    or the IDHN gateway -- no container/network enforcement can see or
+    govern it, regardless of what the manifest's network.allow/deny says.
+    This is the regression test this function exists for: it fails
+    closed (flags anything unrecognized) rather than needing every
+    out-of-band tool enumerated by name ahead of time.
+    """
+    if not path.exists():
+        return []
+
+    items: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "item.completed":
+                continue
+            item = event.get("item")
+            if isinstance(item, dict) and item.get("type") not in KNOWN_LOCAL_ITEM_TYPES:
+                items.append(item)
+    return items
 
 
 def extract_agent_messages(path: Path) -> list[str]:

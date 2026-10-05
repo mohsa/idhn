@@ -958,6 +958,34 @@ teardown -- not an independent failure signal. Documented, not changed;
 see the writeup for why a more informative exit code isn't a small
 enough fix to bundle here.
 
+**Follow-up -- `python` missing from the agent image**:
+`run-20261005-fd5119` was **not** a task/authority failure -- the
+compiler correctly predicted process authority for both `python` and
+`python3` (the task's own validation command used `python -m pytest
+...`), Codex changed exactly the two authorized files, and its own
+validation passed (**27 passed**, `codex-exit-code: 0`). The top-level
+run still reported `exit 127` and task completion UNKNOWN, because
+IDHN's own `--before-test`/`--after-test` harness ran the task's literal
+`python -m pytest ...` command against an agent image that only ever
+installed `python3` -- Codex adapted around the missing binary inside
+its own command (`python() { python3 "$@"; }`) but the external harness
+has no such fallback. Full writeup: `docs/python-substrate-fix.md`.
+
+Fix: `docker/Dockerfile.agent` now installs `python-is-python3`, a real
+`python -> python3` symlink -- not a shell alias, not a rewritten test
+command, and not a change to the compiler, `authority_sets.py`'s fixed
+substrate floor, or the materialized manifest (which was already
+correct). This fixes both the before/after harness, which runs with
+unrestricted `PATH`, and Codex's own PATH-restricted invocation, which
+resolves a granted binary by checking the image's real `PATH` at
+container start (`enforcement/process.py`) -- previously `python`
+found nothing to shim even when granted (`[idhn] warning: allowed
+binary not found on PATH, no shim created: python`). Verified the
+symlink doesn't weaken process enforcement: `python` is still
+unreachable by Codex's own restricted invocation when authority for it
+isn't granted, same as any other substrate binary
+(`tests/integration/test_python_substrate.py`, 4 Docker tests).
+
 ## `idhn compile` → `idhn materialize` → `idhn validate` → `idhn run`
 
 Full writeup: `docs/compile-materialize-run.md`. The capability compiler

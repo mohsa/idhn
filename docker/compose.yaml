@@ -25,7 +25,15 @@ services:
       - ../policies:/policies:ro
       - ${IDHN_RUN_DIR:-./runs/local}:/run
     environment:
-      IDHN_MANIFEST_PATH: /policies/${IDHN_POLICY_FILE:-examples/coding-safe.yaml}
+      # Full container path, set directly by idhn/runtime/docker.py
+      # (DockerRuntime.start -- see gateway_manifest_mount) for every
+      # `idhn run`; the default here only applies to a bare `docker
+      # compose up` outside that path (manual dev/debugging). Previously
+      # built by string concatenation (`/policies/${IDHN_POLICY_FILE}`),
+      # which unconditionally assumed every manifest lived under
+      # policies/ and broke for one that didn't (run-20261005-64e5af) --
+      # see gateway_manifest_mount's docstring for the fix.
+      IDHN_MANIFEST_PATH: ${IDHN_MANIFEST_PATH:-/policies/examples/coding-safe.yaml}
       IDHN_RUN_DIR: /run
       IDHN_RUN_ID: ${IDHN_RUN_ID:-local}
       IDHN_TASK_ID: ${IDHN_TASK_ID:-unknown-task}

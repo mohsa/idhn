@@ -917,6 +917,47 @@ original mixed task end to end and is the regression test: it fails if
 a real IDHN Codex run ever exposes an out-of-band capability the policy
 doesn't grant.
 
+**Follow-up -- a real compile → materialize → run integration bug**:
+`run-20261005-64e5af` showed `idhn run --policy runs/compile-20261004-
+340a00/materialized-manifest.yaml` accepted and validated by the CLI,
+then crashing the gateway with `ManifestError: manifest not found:
+/policies/runs/compile-20261004-340a00/materialized-manifest.yaml` --
+`docker/compose.yaml`'s gateway only ever mounted the host's whole
+`policies/` directory, so a manifest living anywhere else (exactly what
+`idhn materialize` produces) was invisible to it. Full writeup, including
+a genuine Docker Desktop/WSL2 limitation found while fixing this (a
+single-file bind mount onto a not-yet-existing container path fails
+container creation outright, even once its target is pre-baked into the
+image -- only a directory-type mount auto-creates reliably):
+`docs/gateway-manifest-mount-fix.md`.
+
+Fix: `idhn.runtime.docker.gateway_manifest_mount` now copies an
+externally-sourced manifest into the run's own directory (already
+mounted read-write into the gateway at `/run` for its own
+`events.jsonl`) instead of trying to bind-mount it in place -- no new
+Compose volume, and the gateway never sees the manifest's containing
+directory (which could be `runs/`, ephemeral and gitignored). A manifest
+already under `policies/` is completely unaffected. Verified both at the
+unit level (`tests/test_gateway_manifest_mount.py`, 9 tests: in-policies/
+unchanged, the exact `runs/` failure, an absolute external path, Windows
+separators, the staged copy is read-only, the original file is never
+touched) and end to end against the real two-container topology
+(`tests/integration/test_materialized_manifest_gateway.py`, `pytest -m
+docker`: a real materialized manifest outside `policies/` starts the
+gateway, the agent reaches it, and `events.jsonl` shows real decisions
+tagged with the correct policy and run id). Also directly confirmed (not
+just asserted) that read-only filesystem enforcement is intact
+regardless of this change: a manifest with a `filesystem.read` grant and
+no `write` grant produces a container where a write attempt fails with
+`Read-only file system` at the kernel level.
+
+Also investigated: the run's confusing top-level `exit 137`. It's a
+side effect of Compose's `--abort-on-container-exit` SIGKILLing the
+agent mid-startup once the gateway's real crash (exit 1) triggered
+teardown -- not an independent failure signal. Documented, not changed;
+see the writeup for why a more informative exit code isn't a small
+enough fix to bundle here.
+
 ## `idhn compile` → `idhn materialize` → `idhn validate` → `idhn run`
 
 Full writeup: `docs/compile-materialize-run.md`. The capability compiler

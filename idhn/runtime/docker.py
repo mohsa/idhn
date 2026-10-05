@@ -103,11 +103,93 @@ def _mount_spec_to_compose_volume(spec) -> dict:
     }
 
 
+GATEWAY_STAGED_MANIFEST_NAME = "gateway-manifest.yaml"
+
+
+def gateway_manifest_mount(manifest: Manifest, run_dir: Path) -> str:
+    """Where the gateway should load `manifest` from inside its own
+    container.
+
+    `docker/compose.yaml`'s gateway service only ever mounts
+    `../policies:/policies:ro`, so a manifest anywhere else (e.g. a
+    materialized one under `runs/<compile-id>/materialized-
+    manifest.yaml`) was invisible to it regardless of whether `idhn
+    validate`/`idhn run`'s own CLI could see and accept it fine on the
+    host side -- confirmed directly (run-20261005-64e5af): `idhn run
+    --policy runs/.../materialized-manifest.yaml` was accepted, but the
+    gateway crashed with `ManifestError: manifest not found: /policies/
+    runs/.../materialized-manifest.yaml` (the OLD mechanism,
+    _policy_relpath, fell back to the host's absolute path for anything
+    outside policies/, which then *still* got `/policies/` prepended by
+    compose.yaml's own `/policies/${IDHN_POLICY_FILE}` template --
+    nonsensical regardless of host OS).
+
+    Fix, for a manifest outside `policies/`: copy it into `run_dir`
+    (fixed name, `GATEWAY_STAGED_MANIFEST_NAME`) and point the gateway
+    at `/run/<that name>` -- `run_dir` is already bind-mounted read-write
+    into the gateway at `/run` for its own events.jsonl (see
+    write_filesystem_override), so this needs no new volume and exposes
+    nothing the gateway didn't already have access to, while still never
+    mounting (or even reading from) the manifest's own containing
+    directory, which could be `runs/` (ephemeral, gitignored) or
+    anywhere else on the host.
+
+    This is a COPY, not a new bind mount onto the original file, because
+    that was tried first and does not work: Docker Desktop (WSL2
+    backend, containerd snapshotter) can auto-create a bind-mount target
+    when the mount SOURCE is a directory, but fails container creation
+    outright for a single-file source whose exact target path doesn't
+    already exist in the image (`OCI runtime create failed: ... make
+    mountpoint "/policies/...": read-only file system`) -- confirmed
+    this still fails even when the target file is pre-baked empty into
+    the image, so it isn't about auto-vivification at all, it's that this
+    setup cannot create *any* new file-mount binding at container-init
+    time. A directory-type mount (which `/run` already is) has no such
+    problem.
+
+    The copy is chmod'd read-only on the host as defense in depth, but
+    the real protection is structural: the gateway process only ever
+    reads this path once at startup (idhn.network.proxy), and the
+    original host file is never written by this function, by the
+    container, or by anything downstream of it.
+
+    One consequence: idhn.core.manifest.load_manifest's `Manifest.name`
+    (path.stem), as seen by the GATEWAY's own process, comes out as
+    "gateway-manifest" rather than the real manifest's own name, for
+    every run using an external manifest. This is fine -- every audit
+    event the gateway logs already carries `run_id` (idhn.network.proxy,
+    `IDHN_RUN_ID`) independently of `policy` (the manifest name), and
+    `run_id` is what actually disambiguates one run from another in
+    events.jsonl.
+
+    For a manifest INSIDE policies/, this returns the exact same
+    relative path the old mechanism did, copies nothing, and touches
+    run_dir not at all -- that case is untouched, not just equivalent.
+    """
+    if manifest.source_path is None:
+        return "/policies/default.yaml"
+
+    resolved = Path(manifest.source_path).resolve()
+    policies_dir = (REPO_ROOT / "policies").resolve()
+    try:
+        relpath = resolved.relative_to(policies_dir).as_posix()
+    except ValueError:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        staged = run_dir / GATEWAY_STAGED_MANIFEST_NAME
+        staged.write_bytes(resolved.read_bytes())
+        staged.chmod(0o444)
+        return f"/run/{GATEWAY_STAGED_MANIFEST_NAME}"
+    return f"/policies/{relpath}"
+
+
 def write_filesystem_override(manifest: Manifest, run_dir: Path, codex_auth_path: str, workspace_dir: Path) -> Path:
     """Generate a per-run compose override giving the agent service the
     EXACT volumes its filesystem policy implies (see
     enforcement/filesystem.py), plus the auth and run-dir mounts every
-    run needs.
+    run needs. The gateway service needs no entry here -- an externally-
+    sourced manifest is staged into run_dir instead (see
+    gateway_manifest_mount), which the gateway already mounts read-write
+    at /run via docker/compose.yaml's own base definition.
 
     A generated file, not hand-edited compose.yaml, because a Compose
     override REPLACES a service's `volumes:` list wholesale rather than
@@ -156,7 +238,8 @@ def write_filesystem_override(manifest: Manifest, run_dir: Path, codex_auth_path
     volumes.append({"type": "bind", "source": codex_auth_path, "target": "/home/agent/.codex/auth.json", "read_only": True})
     volumes.append({"type": "bind", "source": str(run_dir.resolve()), "target": "/run", "read_only": False})
 
-    override = {"services": {"agent": {"volumes": volumes}}}
+    override: dict = {"services": {"agent": {"volumes": volumes}}}
+
     override_path = run_dir / "compose.filesystem.yaml"
     with override_path.open("w", encoding="utf-8") as f:
         yaml.safe_dump(override, f, sort_keys=False)
@@ -187,11 +270,19 @@ class DockerRuntime(Runtime):
         env = os.environ.copy()
         env.setdefault("IDHN_CODEX_AUTH_PATH", str(DEFAULT_CODEX_AUTH_PATH))
         override_path = write_filesystem_override(manifest, run_dir, env["IDHN_CODEX_AUTH_PATH"], workspace_dir)
+        gateway_manifest_path = gateway_manifest_mount(manifest, run_dir)
         env.update(
             {
                 "IDHN_RUN_ID": execution_id,
                 "IDHN_RUN_DIR": str(run_dir.resolve()),
-                "IDHN_POLICY_FILE": self._policy_relpath(manifest),
+                # The full container path the gateway should load,
+                # computed here rather than built by string
+                # concatenation in compose.yaml (`/policies/${IDHN_POLICY_FILE}`,
+                # the old mechanism) -- that concatenation unconditionally
+                # prepended /policies/ even to a manifest outside it,
+                # which is exactly what broke run-20261005-64e5af. See
+                # gateway_manifest_mount's docstring.
+                "IDHN_MANIFEST_PATH": gateway_manifest_path,
                 "IDHN_TASK": task_description or manifest.task.description,
                 "IDHN_TASK_ID": manifest.task.id,
                 "IDHN_AGENT_COMMAND": build_agent_script(command, before_test_cmd, after_test_cmd, restrict_path=True),
@@ -324,19 +415,6 @@ class DockerRuntime(Runtime):
             stderr=subprocess.DEVNULL,
         )
         return result.returncode
-
-    @staticmethod
-    def _policy_relpath(manifest: Manifest) -> str:
-        # Always POSIX-separated: this gets interpolated into a Linux
-        # container path (/policies/<this>) regardless of host OS, so a
-        # Windows-style backslash here would silently break the mount path.
-        if manifest.source_path is None:
-            return "default.yaml"
-        policies_dir = REPO_ROOT / "policies"
-        try:
-            return Path(manifest.source_path).resolve().relative_to(policies_dir.resolve()).as_posix()
-        except ValueError:
-            return Path(manifest.source_path).as_posix()
 
 
 def run_codex_prompt(prompt: str, execution_id: str, run_dir: Path) -> str:

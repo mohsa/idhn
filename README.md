@@ -1010,6 +1010,29 @@ folded in. This check happens before the later `docker compose up`
 actually mounts anything, which is itself a real TOCTOU gap under
 active investigation, not yet closed by this fix.
 
+**Follow-up -- confirming the TOCTOU gap against a real Docker mount
+(T6)**: that gap is exploitable, not theoretical. A controlled race
+(`docs/evidence/t6-toctou/race_experiment.py`) swapped a writable
+target from an ordinary file to a symlink in the window between the
+T5d check passing and `docker compose up` actually performing the
+mount -- the swap won in under 1ms, inside an 8+ second window, and the
+resulting write landed, verbatim, in the unauthorized symlink target.
+Full writeup, including the threat model and mitigation options
+considered: `docs/toctou-investigation-t6.md`.
+
+The realistic threat is narrower than it first sounds: within a single
+run the agent can't race its own mount setup (it isn't a process yet
+until every mount is already in place), so winning requires a
+*separate, already-running* process with write access to the same
+host path -- concretely, a second, concurrent `idhn run` sharing the
+same workspace, which nothing currently prevents. A host-level
+attacker with independent code execution is explicitly out of IDHN's
+threat model regardless (no mount-time check closes that). Chosen
+mitigation: serialize access to a given workspace with an exclusive
+lock held from the symlink check through container start, closing the
+one vector actually demonstrated. **Not yet implemented** -- this is
+the investigation and decision, not the fix.
+
 ## `idhn compile` → `idhn materialize` → `idhn validate` → `idhn run`
 
 Full writeup: `docs/compile-materialize-run.md`. The capability compiler

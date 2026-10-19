@@ -986,6 +986,30 @@ unreachable by Codex's own restricted invocation when authority for it
 isn't granted, same as any other substrate binary
 (`tests/integration/test_python_substrate.py`, 4 Docker tests).
 
+**Follow-up -- a real writable-mount symlink bypass (T5d)**: a
+controlled reproduction found that a manifest granting `filesystem
+.write` on an existing file could be silently widened if that file was
+actually a pre-existing symlink -- the bind mount followed it, so a
+write Codex believed landed in the authorized path landed, verbatim, in
+a completely different file never granted by the manifest, compiler, or
+materializer. Confirmed with a marker string: written to
+`/workspace/core/language.py`, found afterward in
+`core/idhn-symlink-target.txt` (the symlink's real target) instead.
+Full writeup: `docs/symlink-write-bypass-fix.md`.
+
+Fix: `idhn.runtime.docker.write_filesystem_override` now rejects, before
+any container starts, any writable mount whose target -- or any
+directory component leading to it -- is a symlink on the host. Verified
+with 3 new tests (`tests/test_runtime_symlinks.py`): a symlinked
+writable file is rejected and its real target stays untouched, a
+symlinked parent directory is rejected too, and an ordinary writable
+file is unaffected. Scope deliberately narrow: only write-granted
+mounts are checked; a read-granted mount following a symlink is a
+smaller, different risk, left as a known gap rather than silently
+folded in. This check happens before the later `docker compose up`
+actually mounts anything, which is itself a real TOCTOU gap under
+active investigation, not yet closed by this fix.
+
 ## `idhn compile` → `idhn materialize` → `idhn validate` → `idhn run`
 
 Full writeup: `docs/compile-materialize-run.md`. The capability compiler

@@ -196,6 +196,24 @@ def write_filesystem_override(manifest: Manifest, run_dir: Path, codex_auth_path
     merging it -- and because the mount plan is manifest-dependent, it
     can't be a static file at all without contorting Compose into being
     IDHN's filesystem policy engine.
+
+    Rejects any writable ("rw") bind mount whose target path, or any
+    directory component leading to it, is a symlink on the host (T5d: a
+    real, reproduced bypass -- a manifest granting
+    `filesystem.write: /workspace/core/language.py` where
+    `core/language.py` was ALREADY a pre-existing symlink to
+    `core/idhn-symlink-target.txt` resulted in Docker's bind mount
+    following the symlink, so a write Codex believed landed in the
+    authorized file actually landed, verbatim, in a completely different
+    one never granted by the manifest, the compiler, or materialize --
+    confirmed by writing a known marker string and finding it in the
+    symlink's target file afterward, not the file the policy named).
+    Raising here, before any container starts, converts a silent
+    scope-widening bypass into a hard, loud rejection of the whole run.
+    This is a path-existence check against the host filesystem at
+    override-generation time, not a mount-time guarantee -- see the
+    TOCTOU investigation this motivated (T6) for the gap between this
+    check and the later `docker compose up` actually mounting it.
     """
     plan = build_mount_plan(manifest.capabilities, str(workspace_dir))
 
@@ -222,6 +240,19 @@ def write_filesystem_override(manifest: Manifest, run_dir: Path, codex_auth_path
     resolved_plan = []
     for spec in plan:
         target_path = workspace_dir / Path(spec.container_path).relative_to("/workspace")
+
+        if spec.kind == "bind" and spec.mode == "rw":
+            root = workspace_dir.resolve(strict=True)
+            relative = target_path.relative_to(workspace_dir)
+            current = root
+
+            for component in relative.parts:
+                current = current / component
+                if current.is_symlink():
+                    raise ValueError(
+                        f"IDHN security: writable mount contains symlink: {current}"
+                    )
+
         if spec.kind == "tmpfs":
             target_path.mkdir(parents=True, exist_ok=True)
         elif spec.kind == "bind" and not target_path.exists():

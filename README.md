@@ -843,6 +843,23 @@ measured overhead) in a space where the closest academic match's own
 evaluation is explicitly preliminary and replay-based against existing
 benchmark datasets, not live end-to-end runs.
 
+`docs/external-feedback-kit.md` is a walkthrough script and question
+set for showing this to 2-3 external developers/security engineers --
+prepared, not yet run; the actual feedback that produces is still
+pending, stated as such rather than invented.
+`docs/IDHN-technical-research-report.md` is a standalone, ~3000-word
+draft (problem statement, threat model, architecture, methodology,
+findings, related work, limitations, contributions) synthesizing all
+of the above for a first-time reader; its own external-validation
+section is marked pending for the same reason.
+`docs/week6-final-assessment.md` reviews all of it against the
+roadmap's own checklist, prioritizes the remaining open risks (highest:
+Codex's `browser_use`/`computer_use`/`apps` capabilities, confirmed to
+exist in the same shape as the already-fixed `web_search`, with their
+disable syntax not yet determined), and lays out the evidence for a
+publish/pilot/continue-hardening decision without making that decision
+unilaterally.
+
 ## Post-v0.2.1 dogfood fixes
 
 Full writeup: `docs/dogfood-run-20260928-da17ce.md`. The first manual

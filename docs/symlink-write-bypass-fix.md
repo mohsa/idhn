@@ -67,10 +67,14 @@ Walking every path component (not just the final one) also catches a
 symlinked *directory* on the way to the target, not only a symlinked
 leaf file.
 
-**Scope, deliberately narrow:** only `rw` (write-granted) mounts are
-checked. A `ro` (read-granted) mount following a symlink is a smaller,
-different risk (reading unintended content, not writing it) and isn't
-addressed here — flagged as a known gap, not silently ignored.
+**Scope, originally narrow:** this fix initially checked only `rw`
+(write-granted) mounts, flagging a `ro` (read-granted) mount following
+a symlink as a smaller, different, unaddressed risk. That assessment
+was revised after actually investigating it: a read-granted symlink
+turned out to be able to bypass IDHN's deny-mask guarantee entirely
+(reading `.env` under a different, symlinked name), not just leak
+unrelated content. Both mount modes are now checked — see
+`docs/read-symlink-bypass-fix.md`.
 
 ## Verification
 

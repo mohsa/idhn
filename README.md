@@ -1046,6 +1046,30 @@ against the original bare-thread race experiment, which simulates a
 host-level attacker this lock was never meant to stop (see the full
 writeup for why that's correct, not a gap).
 
+**Follow-up -- the T5d fix's own flagged gap turned out to be a real
+deny-mask bypass**: the write-side fix explicitly flagged read-granted
+mounts as an unchecked, "smaller, different risk" rather than silently
+ignoring it. Investigating that gap directly (not just assuming it was
+minor) found something more serious than expected: a manifest granting
+`filesystem.read` on a file that was actually a symlink to `.env`
+returned `.env`'s REAL content on read -- completely bypassing the
+deny mask that correctly empties out `/workspace/.env` itself, since
+the mask only shadows that one container path, not every other path
+that happens to point at the same host file via a symlink. Confirmed
+for real before and after the fix: `docs/evidence/t6-toctou/
+read_symlink_experiment.py`. Full writeup: `docs/read-symlink-bypass-
+fix.md`.
+
+Fix: the same symlink check now also covers read-granted mounts, not
+just writable ones -- with deny-mask mounts themselves deliberately
+exempt, since a mask substitutes a fixed empty file regardless of what
+the container path points to on the host (confirmed: a deny-masked
+`.env` that is itself a symlink still produces an empty read, with no
+false-positive rejection of the run). 3 new tests in the same
+`tests/test_runtime_symlinks.py` (6 total): a read-granted symlink
+rejected with its real target untouched, an ordinary read-granted file
+unaffected, and the deny-mask exemption confirmed directly.
+
 ## `idhn compile` → `idhn materialize` → `idhn validate` → `idhn run`
 
 Full writeup: `docs/compile-materialize-run.md`. The capability compiler

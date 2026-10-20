@@ -825,6 +825,24 @@ small, narrow, still-unfixed findings named plainly rather than left
 for someone else to rediscover (a policy-engine crash on a malformed
 manifest pattern, a silently-dropped `secrets` capability).
 
+## Week 6: novelty comparison
+
+Full writeup: `docs/novelty-comparison.md`. Grounded in real, cited
+sources (OpenAI Codex CLI's own sandbox docs and a 2026 bug-bounty
+writeup, Anthropic's Claude Code sandboxing engineering post, a June
+2026 audit of LangChain/AutoGPT/CrewAI's default permission behavior,
+and four 2026 academic papers on task-scoped agent capability scoping,
+one -- IntentCap -- read in full, not just its abstract). Headline
+finding stated up front rather than buried: task-scoped least privilege
+for LLM agents is an active 2026 research area with real contemporary
+prior art, so IDHN's defensible claim is narrower than "invented the
+idea" -- it's a working, adversarially-tested, live-validated
+implementation (real commercial agent, real external code, real
+bypasses found by actually attacking the deployed system, real
+measured overhead) in a space where the closest academic match's own
+evaluation is explicitly preliminary and replay-based against existing
+benchmark datasets, not live end-to-end runs.
+
 ## Post-v0.2.1 dogfood fixes
 
 Full writeup: `docs/dogfood-run-20260928-da17ce.md`. The first manual

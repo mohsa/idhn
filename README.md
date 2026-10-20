@@ -32,6 +32,56 @@ touching `core/`.
    Controlled resources
 ```
 
+## Quickstart
+
+**Why this exists.** An autonomous coding agent is as powerful as the
+environment it runs in. Run it unrestricted and a mistake, a prompt
+injection, or an unintended action has the whole repo/host as its blast
+radius. IDHN generates the minimal filesystem/network/process authority
+a *specific task* needs, and enforces exactly that through Docker's own
+mount table and network isolation -- not through the agent's
+cooperation.
+
+**What it protects against, and what it doesn't.** The agent itself may
+be compromised, confused, or adversarially instructed -- IDHN is built
+to make an unauthorized attempt fail regardless. It does **not**
+defend against a host-level attacker with independent code execution
+outside IDHN's own containers, or against a capability a coding agent's
+model provider runs on its own backend rather than as a process inside
+the container (notable past example: Codex's native `web_search`,
+found enabled by default and now disabled -- see `docs/
+web-search-out-of-band-capability.md`). Full account: `docs/
+security-boundary-and-limitations.md`.
+
+**Install and run a real protected task** (requires Docker, Python
+3.11+, and Node/npm for the Codex CLI):
+
+```bash
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+idhn init                        # scaffolds .env and runs/
+codex login                      # or: codex login --device-auth (headless)
+
+idhn validate policies/examples/coding-safe.yaml
+idhn run --policy policies/examples/coding-safe.yaml --agent codex \
+    "Fix the parser bug and run the tests"
+idhn report <run-id>             # printed at the end of `idhn run`
+```
+
+This runs a real, disposable example (`lab/repos/toy-app`, bundled with
+this repo) with zero setup beyond the commands above -- no external
+repo, no manifest to write by hand. Full walkthrough, what each step
+does, and a demo of a blocked unauthorized write with its audit trail:
+"Setup" and "Running the M0 experiment" below, and `docs/
+demo-security-boundary.md`.
+
+**Known limitations, read before relying on this for anything real:**
+`docs/security-boundary-and-limitations.md`. This is a research
+prototype with real, adversarially-tested hardening behind it (see
+`docs/security-validation-report-2026-10-20.md` and `docs/
+IDHN-technical-research-report.md`) -- not a claim of production
+readiness.
+
 ## How a request is decided
 
 ```
@@ -1220,6 +1270,15 @@ idhn init                                            # creates .env from .env.ex
 
 Fill in `OPENAI_API_KEY` in `.env` (or export it) -- the agent container
 needs it to authenticate `codex exec`.
+
+Developed and tested on Windows with Docker Desktop (WSL2 backend) and
+on Linux; both work. If you're on Windows, `docs/windows-wsl2-notes.md`
+covers three concrete pitfalls actually hit during this project's own
+development (symlink-creation privilege requirements, a `/tmp` path
+ambiguity between Git Bash and native Windows Python, and a Docker
+Desktop single-file-mount limitation) -- none of which block normal use
+of `idhn run`/`idhn compile`, only a handful of tests that specifically
+create symlinks.
 
 ## Running the M0 experiment
 

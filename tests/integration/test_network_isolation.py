@@ -175,6 +175,14 @@ def test_proxy_aware_traffic_to_forbidden_host_is_rejected_by_gateway(tmp_path):
 
     assert result["probe_exit_code"] != 0, f"forbidden host should be rejected; stdout={result['stdout']!r}"
     assert "403" in result["stderr"]
+    # The denial message includes the actual host and an actionable hint,
+    # not just a bare reason code -- confirmed to propagate all the way
+    # through urllib's own tunnel-failure exception to the agent's stderr
+    # (idhn/network/proxy.py's error-message improvement, Week 2 of the
+    # open-source roadmap: "improve error messages for rejected
+    # permissions").
+    assert "wikipedia.org" in result["stderr"]
+    assert "network.allow" in result["stderr"]
     deny_events = [
         e for e in result["events"]
         if e["action"]["target"] == "wikipedia.org" and e["decision"] == "deny"

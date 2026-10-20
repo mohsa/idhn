@@ -70,7 +70,26 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self.audit_logger.log_decision(decision, context)
 
         if decision.decision != Decision.ALLOW:
-            self.send_error(403, f"IDHN: blocked by policy ({decision.reason})")
+            # Includes the actual host, not just the reason code -- a bare
+            # "blocked by policy (default_deny)" tells a developer THAT
+            # something was denied but not WHAT, forcing a separate trip
+            # through events.jsonl to find out. The host is already in this
+            # process's own hands; there's no reason to make the caller go
+            # elsewhere for it. The hint is conditional on the reason: for
+            # an explicit deny, suggesting "add it to network.allow" would
+            # be actively wrong advice -- that host was blocked on purpose,
+            # not merely missing from the list.
+            hint = (
+                f" Add '{host}' to this manifest's network.allow if this is expected."
+                if decision.reason == "default_deny"
+                else " This host is explicitly denied in this manifest's network.deny."
+                if decision.reason == "explicit_deny"
+                else ""
+            )
+            self.send_error(
+                403,
+                f"IDHN: network request to '{host}' denied (reason: {decision.reason}).{hint}",
+            )
             return
 
         try:

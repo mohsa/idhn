@@ -1,0 +1,2 @@
+workspace=C:\Users\saifp\projects\personal\rag-idhn-t1 base=e46553683f99a09e952d6f6f948cbf1b03400fb6 core/text.py sha256=b9915309f88af164d4b8f1c8c2f125d65ff3997d96df06de73af31ef7bd19c09
+idhn HEAD at report time: 1c811616b8a8151656471d4bca5647d44d725b12

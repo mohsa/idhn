@@ -1,0 +1,45 @@
+IDHN M3 RESULT
+----------------------------------
+
+Task completion          UNKNOWN (no after-test log)
+Tests before              n/a
+Tests after               n/a
+
+Agent duration            00:38
+
+Filesystem
+  reads                   not observed in general -- v0.1 has no read-level
+                          instrumentation for ordinary (allowed) reads
+  writes (agent trace)    0
+  unique files written    0  (ground truth: workspace content-hash diff)
+
+Deny-masked filesystem reads   0  (content served empty by the mount
+                               mask -- see idhn.enforcement.filesystem; BLOCKED by
+                               construction regardless of the command's own exit code,
+                               never a residual gap)
+
+Processes
+  executions              0
+
+Network
+  direct allowed          17
+  direct denied           0
+  transitive denied       0
+
+Capabilities
+  granted                 25
+  exercised               3
+  unused                  22
+
+Escalations               0
+
+Denied and stayed denied
+  network (live pre-check)          0
+  filesystem/process (blocked mid-attempt)  0
+
+Residual gaps             0  (denied by policy but succeeded anyway -- a real finding)
+
+Out-of-band capabilities  0  (executed via Codex's own backend, NOT inside
+                          this container -- no filesystem/process/network enforcement
+                          IDHN runs can see or govern these; see
+                          docs/web-search-out-of-band-capability.md)

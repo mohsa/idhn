@@ -1,0 +1,10 @@
+diff --git a/core/text.py b/core/text.py
+index 5543f7a..e56ced8 100644
+--- a/core/text.py
++++ b/core/text.py
+@@ -109,4 +109,4 @@ def safe_basename(value: str) -> str:
+     before taking the final path component.
+     """
+     normalized = value.strip().replace("\\", "/")
+-    return PurePosixPath(normalized).name or value.strip()
++    return PurePosixPath(normalized).name

@@ -984,6 +984,17 @@ were confirmed to exist as real, non-trivial Codex config keys of the
 same general shape, but their correct disable syntax wasn't determined
 within reasonable effort -- documented as an open limitation rather than
 guessed at, per instruction not to invent a brittle workaround.
+**Follow-up (Week 6): now fixed.** The earlier attempt tried disabling
+each as a top-level config struct and correctly found that doesn't
+work; `codex features list` (CLI 0.160.0) surfaced the actual mechanism
+-- a separate feature-flag registry confirming all three (plus
+`browser_use_external`/`browser_use_full_cdp_access`) are `stable` and
+enabled by default, the same pattern that made `web_search` a real gap.
+`CodexAdapter.command()` now disables all five via
+`-c features.<name>=false`, verified both by `--strict-config` (no
+"unrecognized field" error) and a real `idhn run` completing a normal
+task successfully with all five disabled. See
+`docs/web-search-out-of-band-capability.md`'s "Resolved" section.
 
 No change to `docker/compose.yaml`, `idhn/network/proxy.py`,
 `idhn/network/callers.py`, or any filesystem/process/network enforcement

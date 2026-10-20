@@ -131,24 +131,49 @@ mediated capabilities, not shell commands:
 | Key | Status (per `codex features list`) | Confirmed? |
 |---|---|---|
 | `web_search` | enabled by default (Codex's own words) | **Yes** -- reproduced live, fixed, verified (sections 1-4 above) |
-| `browser_use`, `browser_use_external`, `browser_use_full_cdp_access` | `stable`, `true` | No -- confirmed to exist as a configurable top-level struct (`-c browser_use=false` errors "expected struct BrowserUseConfigToml", i.e. it's real and non-trivial), but **not reproduced**: no live run was used to confirm it's reachable from `codex exec` specifically, what it would do, or the correct syntax to disable it (`browser_use.enabled=false` was rejected as an unknown field; the correct sub-key wasn't determined) |
-| `computer_use` | `stable`, `true` | No -- same as `browser_use`: confirmed to exist (`-c computer_use=false` errors "expected struct ComputerUseConfigToml"), disable syntax not determined, not reproduced |
-| `apps` | `stable`, `true` | No -- confirmed to exist (`-c apps=false` errors "expected struct AppConfig"), disable syntax not determined, not reproduced |
-| `image_generation` | `stable`, `true` | No -- appears in the feature registry; not probed as a top-level config key at all |
+| `browser_use`, `browser_use_external`, `browser_use_full_cdp_access` | `stable`, `true` | **Yes, now fixed** -- see "Resolved" below |
+| `computer_use` | `stable`, `true` | **Yes, now fixed** -- see "Resolved" below |
+| `apps` | `stable`, `true` | **Yes, now fixed** -- see "Resolved" below |
+| `image_generation` | `stable`, `true` | Not fixed -- goes through Codex's own already-allowlisted API backend (same channel every other model call uses), not a separate out-of-band route the way web_search/browser_use/computer_use/apps are; lower priority, not yet investigated further |
 
-**These are not fixed.** Per the explicit instruction not to invent a
-brittle workaround: guessing at `browser_use`/`computer_use`/`apps`'s
-correct disable syntax without being able to verify it (each is a
-non-trivial struct, not a boolean) risks either doing nothing (a
-config key that silently fails to apply) or, worse, breaking something
-that `--strict-config` wouldn't catch. **Recommendation**: before
-enabling any task that might plausibly invoke browser or computer-use
-style tools, investigate the correct disable syntax for these three with
-the same rigor applied to `web_search` here (live reproduction, not
-guesswork) -- `idhn.audit.codex_events.out_of_band_items` (added as part
-of this work) will already flag any of them if they execute as an
-unrecognized item type in a real run, giving early warning even before
-there's a confirmed fix.
+### Resolved (CLI 0.160.0, Week 6 follow-up)
+
+The earlier attempt above tried `-c browser_use=false` /
+`-c computer_use=false` / `-c apps=false` as top-level scalar
+overrides and correctly found they're structs, not booleans
+("expected struct BrowserUseConfigToml" etc.) -- but there are
+**two separate things with overlapping names**: the top-level config
+struct (detailed settings for the tool, if enabled) and a **feature
+flag** gating whether the tool is exposed to the model at all
+(`codex features list`, a registry this earlier investigation hadn't
+yet surveyed for these specific names). The feature flags are the
+actual on/off switch: `codex features list` confirms `apps`,
+`browser_use`, `browser_use_external`, `browser_use_full_cdp_access`,
+and `computer_use` are all `stable` and `true` (enabled by default,
+same pattern that made `web_search` a real gap). `--strict-config`
+accepts `-c features.<name>=false` for all five (no "unrecognized
+field" error), and a real `idhn run` with all five disabled still
+completes a normal coding task successfully. `idhn.adapters.codex
+.CodexAdapter.command()` now passes all five by default, alongside
+`web_search="disabled"`. Regression test:
+`tests/test_codex_adapter.py::test_command_disables_other_
+provider_side_capabilities_by_default`.
+
+Not disabled: several other `stable`/`true` feature flags whose names
+*suggest* possible out-of-band execution (`in_app_browser`,
+`in_app_local_automation`, `plugins`/`plugin_sharing`/`remote_plugin`,
+`multi_agent`) were seen in the same `codex features list` output but
+not investigated or disabled -- unlike `web_search`/`browser_use`/
+`computer_use`/`apps`, their actual behavior (in-container vs.
+provider-side) wasn't confirmed, and disabling ~140 feature flags
+indiscriminately (most of which, like `shell_tool`/`unified_exec`, are
+core functionality Codex needs to run at all) would risk breaking
+Codex outright for an unconfirmed benefit -- the same reasoning that
+kept this fix narrow (five confirmed names) rather than attempting a
+blanket "disable everything" pass. `idhn.audit.codex_events.
+out_of_band_items` still provides a general safety net for any of
+these (or anything else) if one is ever actually exercised in a real
+run.
 
 `idhn.audit.codex_events.KNOWN_LOCAL_ITEM_TYPES` is the complete,
 *surveyed* (not guessed) set of item types that have ever executed
@@ -183,7 +208,7 @@ that benchmark ever saw or could have denied.
 |---|---|---|---|
 | Container filesystem/process | Bind mounts (read-only base + layered read/write grants + deny masks), PATH-restricted shim directory | What files Codex can read/write, what binaries it can exec | `tests/test_enforcement_filesystem.py`, `tests/test_enforcement_process.py` |
 | Container network traffic | Docker's `internal: true` network (no route out at all) + the IDHN gateway (`idhn/network/proxy.py`, policy-checked HTTP CONNECT) | Every outbound connection any process INSIDE the container makes, proxy-aware or not | `tests/integration/test_network_isolation.py` |
-| Provider-side/tool-mediated | Codex CLI's own feature configuration (`-c web_search=...`, and unconfirmed for `browser_use`/`computer_use`/`apps`) | Capabilities the MODEL invokes that execute on OpenAI's own backend, never as a process inside this container at all | `idhn.audit.codex_events.out_of_band_items` (detection); `-c web_search="disabled"` (prevention, web_search only) |
+| Provider-side/tool-mediated | Codex CLI's own feature configuration (`-c web_search=...`, `-c features.<name>=false`) | Capabilities the MODEL invokes that execute on OpenAI's own backend, never as a process inside this container at all | `idhn.audit.codex_events.out_of_band_items` (detection); `-c web_search="disabled"` + `-c features.{apps,browser_use,browser_use_external,browser_use_full_cdp_access,computer_use}=false` (prevention, five names now, not just web_search) |
 
 The first two are IDHN's actual containment boundary and were never in
 question here -- `.env` stayed masked, and the container genuinely has no
@@ -231,12 +256,19 @@ change to existing filesystem/process/network accounting.
 
 ## Remaining limitations
 
-- `browser_use`, `computer_use`, `apps` (and possibly `image_generation`)
-  are confirmed-real, unconfirmed-disabled provider-mediated
-  capabilities of the same general shape as `web_search`. Not fixed; see
-  section 5. `out_of_band_items()` will flag any of them if they ever
-  execute in a real run, which is the detection half of containment even
-  without the prevention half being done yet.
+- `browser_use`, `computer_use`, and `apps` are now fixed (see section
+  5, "Resolved"). `image_generation` remains unfixed but lower
+  priority -- it goes through Codex's own already-allowlisted API
+  backend rather than a separate out-of-band route. Several other
+  `stable`/`true` feature flags whose names suggest possible
+  out-of-band execution (`in_app_browser`, `in_app_local_automation`,
+  `plugins`/`plugin_sharing`/`remote_plugin`, `multi_agent`) were seen
+  but not investigated -- their actual behavior wasn't confirmed, and
+  disabling them without that confirmation risks breaking Codex for an
+  unconfirmed benefit. `out_of_band_items()` will flag any of these (or
+  anything else) if they ever execute in a real run, which is the
+  detection half of containment regardless of whether a specific
+  capability has a confirmed prevention fix yet.
 - `out_of_band_items()`'s "known local" allowlist is a survey of this
   project's own historical traces, not a claim from Codex's own
   documentation about which item types exist. A Codex update that

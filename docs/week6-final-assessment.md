@@ -7,6 +7,15 @@ decision itself belongs to the person deciding whether to spend
 reputation and time on this, not to this document — what follows is
 the case, not the verdict.
 
+**Update, same day:** risk #1 below (`browser_use`/`computer_use`/
+`apps`) has since been resolved — `codex features list` surfaced the
+actual disable mechanism, `CodexAdapter.command()` now disables all
+five related flags by default, verified by both `--strict-config` and
+a real completed task run. See `docs/
+web-search-out-of-band-capability.md`'s "Resolved" section. The
+original risk-#1 writeup below is kept as the record of the assessment
+at the time this document was first written, not retroactively edited.
+
 ## Checklist against the roadmap's own Week 6 items
 
 - [x] Novelty comparison with existing solutions completed —

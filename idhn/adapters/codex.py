@@ -58,6 +58,39 @@ class CodexAdapter:
         # which correctly goes through the container network and gets
         # denied by gateway policy like anything else) -- not a sandbox
         # setting IDHN is faking or a flag that merely discourages use.
+        #
+        # The remaining provider-side capabilities flagged as an open
+        # limitation when web_search was fixed (docs/
+        # web-search-out-of-band-capability.md) are closed here: `codex
+        # features list` (CLI 0.160.0) enumerates every feature flag with
+        # its default state, and confirms `apps`, `browser_use`,
+        # `browser_use_external`, `browser_use_full_cdp_access`, and
+        # `computer_use` are ALL `stable` and `true` -- enabled by
+        # default, the same pattern that made web_search a real,
+        # exploitable gap rather than a hypothetical one. None of these
+        # appear in web_search's own `[features]` namespace (web_search
+        # is a separate, plain top-level config key), which is why they
+        # needed their own investigation rather than being covered by
+        # that earlier fix. `--strict-config` accepts all five names
+        # (confirmed: no "unrecognized field" error), and a real Codex
+        # run with all five disabled still completes a normal task
+        # successfully (verified before this was wired in here -- see
+        # the commit introducing this change for the reproduction).
+        # Disabling by name (`-c features.<name>=false`), not a blanket
+        # "disable every feature" pass: `codex features list` has ~140
+        # entries, most of which (`shell_tool`, `unified_exec`,
+        # `apply_patch_*`) are core functionality Codex needs to run at
+        # all -- disabling everything indiscriminately would break Codex
+        # outright, a worse outcome than leaving a named, investigated
+        # gap open. Other `stable`/`true` flags whose names suggest
+        # possible out-of-band execution (`in_app_browser`,
+        # `in_app_local_automation`, `plugins`/`plugin_sharing`/
+        # `remote_plugin`, `multi_agent`) were seen in the same listing
+        # but NOT disabled here -- their actual behavior (in-container
+        # vs provider-side) wasn't confirmed, and disabling them without
+        # that confirmation would risk breaking Codex for an unconfirmed
+        # benefit, the same reasoning that kept this fix narrow rather
+        # than broad.
         return [
             "codex",
             "exec",
@@ -67,5 +100,15 @@ class CodexAdapter:
             "--json",
             "-c",
             'web_search="disabled"',
+            "-c",
+            "features.apps=false",
+            "-c",
+            "features.browser_use=false",
+            "-c",
+            "features.browser_use_external=false",
+            "-c",
+            "features.browser_use_full_cdp_access=false",
+            "-c",
+            "features.computer_use=false",
             task,
         ]

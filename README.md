@@ -910,6 +910,34 @@ disable syntax not yet determined), and lays out the evidence for a
 publish/pilot/continue-hardening decision without making that decision
 unilaterally.
 
+## Open-source roadmap, Week 3: IDHN vs. Codex's own native sandbox
+
+A second, later roadmap (four weeks, toward a public GitHub release)
+followed the six-week research roadmap above -- "Week 3" here is that
+roadmap's own numbering, not a continuation of "Week 6" just above.
+Full writeup: `docs/week3-native-sandbox-comparison.md`, script:
+`benchmark/native_sandbox_comparison.py`. Answers this roadmap's own
+central concern directly: *a blocked write isn't evidence IDHN adds
+value if Codex's native sandbox would have blocked it anyway.*
+
+Getting Codex's `--sandbox workspace-write` to even run inside an
+ordinary container was itself a finding -- it failed outright
+(`bwrap: No permissions to create a new namespace`) without
+`--cap-add SYS_ADMIN` + `--security-opt seccomp=unconfined` (confirmed
+narrower than `--privileged`, tested incrementally). Once it worked:
+same real bug fixed correctly in both conditions (task success parity,
+again), but Codex's own sandbox has exactly one filesystem boundary
+(inside the project directory vs. outside it) -- it allowed a write to
+`package.json` (inside the project, outside this task's actual
+authorized scope), leaving it genuinely corrupted (invalid JSON, not
+hypothetical). IDHN's compiled, task-specific manifest caught exactly
+this. Both conditions equally allow writes to the container's own
+ephemeral, never-host-mounted scratch space (`/tmp`) -- reported
+honestly as something IDHN does not improve on, since nothing persists
+past the container's lifetime either way. Condition A also has zero
+independent audit evidence beyond Codex's own self-report (no gateway,
+no ground-truth filesystem diff); condition B has both.
+
 ## Post-v0.2.1 dogfood fixes
 
 Full writeup: `docs/dogfood-run-20260928-da17ce.md`. The first manual

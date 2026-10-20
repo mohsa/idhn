@@ -35,10 +35,13 @@ RUN_DIR = SCRATCH / "run"
 
 # DockerRuntime.start() always bind-mounts this (read-only) into the
 # agent regardless of whether Codex itself is invoked -- needs a real
-# file to exist as the mount source. Real path confirmed from the T5d
-# lab's own compose.filesystem.yaml.
+# file to exist as the mount source. Defaults to this user's own Linux
+# home (same default idhn/runtime/docker.py's own DEFAULT_CODEX_AUTH_PATH
+# uses) -- set IDHN_CODEX_AUTH_PATH yourself first if your `codex login`
+# credential lives somewhere else (e.g. a Windows-side path reached via
+# WSL's /mnt/c/... passthrough).
 if sys.platform == "linux":
-    os.environ.setdefault("IDHN_CODEX_AUTH_PATH", "/mnt/c/Users/saifp/.codex/auth.json")
+    os.environ.setdefault("IDHN_CODEX_AUTH_PATH", str(Path.home() / ".codex" / "auth.json"))
 
 from idhn.core.manifest import Manifest  # noqa: E402
 from idhn.core.models import Task  # noqa: E402

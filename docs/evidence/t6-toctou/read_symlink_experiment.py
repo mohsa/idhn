@@ -29,8 +29,11 @@ SCRATCH = Path("/tmp/idhn-read-symlink") if sys.platform == "linux" else REPO_RO
 WORKSPACE = SCRATCH / "workspace"
 RUN_DIR = SCRATCH / "run"
 
+# Defaults to this user's own Linux home (same default idhn/runtime/
+# docker.py's own DEFAULT_CODEX_AUTH_PATH uses) -- set IDHN_CODEX_AUTH_PATH
+# yourself first if your `codex login` credential lives elsewhere.
 if sys.platform == "linux":
-    os.environ.setdefault("IDHN_CODEX_AUTH_PATH", "/mnt/c/Users/saifp/.codex/auth.json")
+    os.environ.setdefault("IDHN_CODEX_AUTH_PATH", str(Path.home() / ".codex" / "auth.json"))
 
 from idhn.core.manifest import Manifest  # noqa: E402
 from idhn.core.models import Task  # noqa: E402

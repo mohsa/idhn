@@ -32,6 +32,10 @@ touching `core/`.
    Controlled resources
 ```
 
+Deeper, developer-facing architecture reference (module map, the four-
+stage compile → materialize → enforce → audit pipeline, how to add a
+new agent or runtime): `ARCHITECTURE.md`.
+
 ## Quickstart
 
 **Why this exists.** An autonomous coding agent is as powerful as the
@@ -52,6 +56,20 @@ the container (notable past example: Codex's native `web_search`,
 found enabled by default and now disabled -- see `docs/
 web-search-out-of-band-capability.md`). Full account: `docs/
 security-boundary-and-limitations.md`.
+
+**Why not just run the agent in plain Docker, or rely on its own
+sandbox?** Measured directly, not assumed: Codex's own best native
+protection (`--sandbox workspace-write`) has exactly one filesystem
+boundary -- inside the project directory vs. outside it. Given the
+same real bug-fix task, it let the agent write to `package.json`
+(inside the project, but outside that task's actual scope), and the
+agent's own report afterward confirms the file was left genuinely
+corrupted (invalid JSON) as a result. IDHN's compiled, task-specific
+manifest caught exactly that write, with no extra configuration beyond
+what `idhn compile` already produces per task. Full comparison,
+including what IDHN does *not* improve on (reported just as plainly):
+`docs/week3-native-sandbox-comparison.md`; raw evidence:
+`benchmark/results/native-sandbox-comparison.json`.
 
 **Install and run a real protected task** (requires Docker, Python
 3.11+, and Node/npm for the Codex CLI):

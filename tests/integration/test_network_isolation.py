@@ -38,6 +38,21 @@ compose run` container doesn't, and gets rejected as an
 invariant under test -- found by trying the simpler approach first and
 hitting exactly that failure.
 
+Known environmental fragility, confirmed repeatedly, not a code issue:
+`test_proxy_aware_traffic_to_allowed_host_succeeds_through_gateway`
+depends on live DNS resolution of `example.com` specifically working
+through the gateway's own route out. On at least one development
+machine, the LOCAL ROUTER's own DNS resolver persistently fails this
+one specific domain ("Non-existent domain") while resolving every
+other domain tested (google.com, wikipedia.org) and while a public
+resolver (8.8.8.8) resolves example.com correctly -- i.e. a local
+network quirk upstream of Docker and this project entirely, reproduced
+identically across multiple, separate runs over several hours. If this
+test fails with `getaddrinfo`/`Name or service not known` for
+`example.com` specifically while every other test in this file passes,
+check `nslookup example.com` against your own machine's default
+resolver before assuming a regression.
+
 Requires Docker and real internet access to example.com/wikipedia.org/
 1.1.1.1 (consistent with how M1 was originally verified live against
 registry.npmjs.org/example.com -- not a new requirement). Marked

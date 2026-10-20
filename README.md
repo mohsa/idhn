@@ -784,6 +784,26 @@ the repo root on `sys.path` -- not a compiler-recall failure by any
 existing miss-taxonomy cause, since nothing in the task text could imply
 an empty file's presence matters.
 
+## Week 4: protected vs. unprotected benchmark comparison
+
+Full writeup: `benchmark/results/v0.2.1-overhead-summary.md`, generated
+by `benchmark/overhead.py`. The security roadmap's Week 4 deliverable
+(task success, runtime overhead, and prevented unauthorized actions,
+protected vs. unprotected) -- built entirely from v0.2-B/v0.2.1 data
+already on disk (`bench-exec-*`/`bench-v0.2.1-*` artifacts), no new
+Codex/Docker runs. Protected task success (20/24, 2 unjudgeable) is
+essentially unchanged from unprotected (23/24) -- the compiler's
+generated authority is permissive enough for the work to actually get
+done. Mean runtime overhead: +5.0s / +14.2% (wall-clock agent duration
+only). One real policy-compatibility gap surfaced (T19, already known
+as a task-decomposition miss, not new here). Two "residual gap"
+findings (the one metric this analysis newly computed for the full
+corpus) were investigated and confirmed as audit-heuristic
+text-parsing false positives (a bash `for` keyword and a bare `ls`
+argument misidentified as process-exec targets), not real bypasses of
+the PATH-allowlist or filesystem enforcement verified directly
+elsewhere in this project.
+
 ## Post-v0.2.1 dogfood fixes
 
 Full writeup: `docs/dogfood-run-20260928-da17ce.md`. The first manual

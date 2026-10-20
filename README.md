@@ -1,5 +1,11 @@
 # IDHN v0.3.0 -- Interchangeable Deterministic Host Network
 
+**IDHN enforces task-scoped permissions for autonomous coding agents.
+In a controlled experiment, it prevented an unauthorized modification
+inside the project that the tested native workspace sandbox allowed,
+without reducing legitimate task success.** (`docs/
+week3-native-sandbox-comparison.md`)
+
 A proof of concept for putting a deterministic, auditable policy
 boundary between a coding agent (first: Codex) and the resources it can
 touch -- filesystem, network, processes, git, secrets.

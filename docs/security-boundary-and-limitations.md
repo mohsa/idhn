@@ -76,12 +76,27 @@ the container — no amount of Docker network isolation or gateway
 policy can see or govern it, the same way a firewall around a
 contractor's laptop doesn't stop them from looking something up
 themselves (`docs/web-search-out-of-band-capability.md`). Fixed for
-`web_search` specifically (`web_search="disabled"`, confirmed via
-`--strict-config` and live reproduction, not guessed). **Still open:**
-`browser_use`, `computer_use`, and `apps` are confirmed to exist as
-real Codex config keys of the same shape, but their disable syntax was
-not determined within reasonable effort — documented as a limitation
-rather than guessed at or silently left unmentioned.
+`web_search`, and — a follow-up investigation found via `codex features
+list` that they were enabled by default in the same way — also for
+`apps`, `browser_use`, `browser_use_external`,
+`browser_use_full_cdp_access`, and `computer_use` (disabled by default
+in `idhn.adapters.codex.CodexAdapter.command()`, confirmed via
+`--strict-config` and a real completed task run, not guessed).
+
+**Still open:** several other Codex feature flags whose names suggest
+possible out-of-band execution (`in_app_browser`,
+`in_app_local_automation`, `plugins`/`plugin_sharing`/`remote_plugin`,
+`multi_agent`) were seen in the same `codex features list` output
+(~140 total flags) but their actual behavior — in-container vs.
+provider-side — was not investigated, and they are **not** disabled by
+default. Left open deliberately rather than guessed at: most of the
+~140 flags are core functionality Codex needs to run at all
+(`shell_tool`, `unified_exec`), so disabling broadly without confirming
+each one's behavior risks breaking Codex outright for an unconfirmed
+security benefit. `idhn.audit.codex_events.out_of_band_items` still
+flags any of these (or anything else) as an unrecognized item type if
+one is ever actually exercised in a real run — detection, not
+prevention, for this specific set.
 
 ## Known gaps in what can currently be audited (enforcement unaffected)
 

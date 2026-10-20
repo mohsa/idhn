@@ -56,8 +56,25 @@ something to minimize:
   it cannot see or govern what happens on a provider's own
   infrastructure.
 
-Full account, including what's audited-but-not-yet-prevented and two
-small, specific, still-open findings: `docs/
+## Still-open findings (not fixed yet, stated plainly)
+
+- **Some Codex provider-side capabilities are undisabled.** `codex
+  features list` surfaces ~140 feature flags; `web_search`, `apps`,
+  `browser_use` (and variants), and `computer_use` are confirmed
+  enabled-by-default and are now disabled in this project's own Codex
+  invocation. Several others whose names suggest possible out-of-band
+  execution (`in_app_browser`, `in_app_local_automation`,
+  `plugins`/`plugin_sharing`/`remote_plugin`, `multi_agent`) have not
+  been investigated and are **not** disabled — their actual
+  in-container-vs-provider-side behavior is unconfirmed.
+- **`idhn.core.policy._matches_any` crashes on a non-string manifest
+  pattern** (e.g. `deny: [null]`) instead of cleanly rejecting it.
+  Availability issue, not a privilege escalation.
+- **A compiled `secrets` capability proposal is silently dropped**
+  rather than erroring. Fails closed (nothing is granted), but silently.
+
+Full account, including what's audited-but-not-yet-prevented and the
+T6 TOCTOU mitigation's own precise threat model: `docs/
 security-boundary-and-limitations.md`.
 
 ## Supported versions

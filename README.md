@@ -1027,11 +1027,24 @@ until every mount is already in place), so winning requires a
 host path -- concretely, a second, concurrent `idhn run` sharing the
 same workspace, which nothing currently prevents. A host-level
 attacker with independent code execution is explicitly out of IDHN's
-threat model regardless (no mount-time check closes that). Chosen
-mitigation: serialize access to a given workspace with an exclusive
-lock held from the symlink check through container start, closing the
-one vector actually demonstrated. **Not yet implemented** -- this is
-the investigation and decision, not the fix.
+threat model regardless (no mount-time check closes that).
+
+**Mitigated and verified**: `idhn.runtime.workspace_lock` (new) is a
+cross-platform exclusive lock, keyed by workspace path, with lock files
+living entirely outside the workspace. `DockerRuntime.start()` now
+holds it for a run's ENTIRE duration -- not just the symlink check, but
+through `docker compose up` actually mounting, the whole container
+run, and teardown -- so two runs against the same workspace can never
+be alive at the same time, closing the window rather than narrowing
+it. Verified two ways: 4 unit tests on the locking primitive itself
+(`tests/test_workspace_lock.py`), and a real Docker test
+(`tests/integration/test_toctou_workspace_lock.py`) proving the actual
+wiring -- while one real `start()` call is genuinely running, a second
+attempt to acquire the same workspace's lock times out, and succeeds
+again only once the first call returns. Deliberately not re-verified
+against the original bare-thread race experiment, which simulates a
+host-level attacker this lock was never meant to stop (see the full
+writeup for why that's correct, not a gap).
 
 ## `idhn compile` → `idhn materialize` → `idhn validate` → `idhn run`
 

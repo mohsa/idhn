@@ -1,9 +1,9 @@
-# T6: TOCTOU race against the T5d symlink check (investigation)
+# T6: TOCTOU race against the T5d symlink check
 
-**Status: investigated, confirmed exploitable, mitigation chosen but
-NOT yet implemented** — this is the Week 1 deliverable (establish
-whether the race affects a real Docker mount, document the threat
-assumptions, choose a mitigation); implementation is a separate step.
+**Status: investigated, confirmed exploitable, mitigated and verified.**
+Week 1 (investigate, choose a mitigation) and Week 2 (implement, test)
+of the original roadmap split, done together once the investigation
+made the fix itself small and clear-cut.
 
 ## The race
 
@@ -126,9 +126,50 @@ access to the same workspace, but that's not the vector this
 investigation found, so building it now would be solving a problem
 that hasn't been demonstrated.
 
-**Not yet implemented.** Per the roadmap's own split (Week 1: establish
-+ choose; Week 2: implement + test), this document is the Week 1
-deliverable. Implementing D — and its own regression tests (two
-concurrent runs against one workspace; confirm the lock actually
-serializes them; confirm the race no longer wins once serialized) — is
-the next concrete step.
+## Implementation
+
+`idhn.runtime.workspace_lock.workspace_lock` (new): a cross-platform
+exclusive lock (`fcntl.flock` on POSIX, `msvcrt.locking` on Windows,
+with a uniform polling retry loop on top of both rather than relying on
+each platform's differing built-in blocking semantics), keyed by a hash
+of the resolved workspace path, with lock files living entirely outside
+the workspace so nothing is ever written into the repository being
+protected.
+
+`DockerRuntime.start()` now holds this lock for its ENTIRE duration —
+not just around `write_filesystem_override`'s check, but through
+`docker compose up` actually performing the mount, the whole container
+run, and teardown. This is deliberate: once two runs against the same
+workspace can never be alive at the same time, there is no window left
+to race, not just a narrower one (mitigation A, a re-check immediately
+before mounting, was evaluated and rejected precisely because shrinking
+the window isn't the same as closing it).
+
+**Verified two ways:**
+
+- `tests/test_workspace_lock.py` (4 unit tests, no Docker): the raw
+  locking primitive itself — a second acquire blocks until the first
+  releases, different workspaces never contend, the lock path depends
+  only on the resolved workspace path (not its literal spelling).
+- `tests/integration/test_toctou_workspace_lock.py` (1 Docker test):
+  proves the actual wiring, not just the primitive — while one real
+  `DockerRuntime.start()` call is in flight (a container genuinely
+  running), a second, independent attempt to acquire the *same*
+  workspace's lock times out, and succeeds again only once the first
+  call has fully returned.
+
+**Deliberately not re-verified against `docs/evidence/t6-toctou/
+race_experiment.py`'s original bare-thread swap** — that experiment
+simulates a host-level attacker acting outside any IDHN-managed
+process, which this lock explicitly does not and cannot defend
+against (see the threat model above). Re-running it unmodified still
+wins, correctly: it's testing a vector this fix was never meant to
+close. What closes is two concurrent `DockerRuntime.start()`
+invocations, which is what the new integration test proves directly.
+
+No change to `write_filesystem_override`'s own symlink check (T5d,
+`docs/symlink-write-bypass-fix.md`), to how any single run's mounts are
+computed, or to any existing behavior for a workspace nothing else is
+concurrently touching — the lock is acquired and released
+transparently; a normal, single `idhn run` invocation sees no visible
+difference beyond a negligible lock-acquire check.

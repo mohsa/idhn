@@ -23,6 +23,7 @@ from idhn.audit.filesystem_diff import diff as diff_workspace_snapshots
 from idhn.audit.filesystem_diff import snapshot as snapshot_workspace
 from idhn.enforcement.filesystem import EMPTY_FILE_STUB, build_mount_plan
 from idhn.enforcement.process import allowed_binaries
+from idhn.runtime.workspace_lock import workspace_lock
 
 DEFAULT_CODEX_AUTH_PATH = Path.home() / ".codex" / "auth.json"
 
@@ -298,77 +299,85 @@ class DockerRuntime(Runtime):
         run_dir.mkdir(parents=True, exist_ok=True)
         workspace_dir = (workspace_dir or DEFAULT_WORKSPACE_DIR).resolve()
 
-        env = os.environ.copy()
-        env.setdefault("IDHN_CODEX_AUTH_PATH", str(DEFAULT_CODEX_AUTH_PATH))
-        override_path = write_filesystem_override(manifest, run_dir, env["IDHN_CODEX_AUTH_PATH"], workspace_dir)
-        gateway_manifest_path = gateway_manifest_mount(manifest, run_dir)
-        env.update(
-            {
-                "IDHN_RUN_ID": execution_id,
-                "IDHN_RUN_DIR": str(run_dir.resolve()),
-                # The full container path the gateway should load,
-                # computed here rather than built by string
-                # concatenation in compose.yaml (`/policies/${IDHN_POLICY_FILE}`,
-                # the old mechanism) -- that concatenation unconditionally
-                # prepended /policies/ even to a manifest outside it,
-                # which is exactly what broke run-20261005-64e5af. See
-                # gateway_manifest_mount's docstring.
-                "IDHN_MANIFEST_PATH": gateway_manifest_path,
-                "IDHN_TASK": task_description or manifest.task.description,
-                "IDHN_TASK_ID": manifest.task.id,
-                "IDHN_AGENT_COMMAND": build_agent_script(command, before_test_cmd, after_test_cmd, restrict_path=True),
-                "IDHN_ALLOWED_BINARIES": ",".join(allowed_binaries(manifest.capabilities)),
-                "IDHN_CPU": str(manifest.limits.get("cpu", 2)),
-                "IDHN_MEMORY": str(manifest.limits.get("memory", "4g")),
-                "IDHN_CANARY_VALUE": read_canary_value(workspace_dir),
-            }
-        )
-
-        stdout_path = run_dir / "stdout.log"
-        stderr_path = run_dir / "stderr.log"
-
-        # Ground-truth filesystem-write observation (idhn.audit.
-        # filesystem_diff): a content-hash snapshot taken right before the
-        # container starts and right after it exits, independent of
-        # whether Codex reported the write through its structured
-        # file_change tool or an opaque shell command -- see that
-        # module's docstring for why (a real write via an inline heredoc
-        # was observed reporting zero filesystem writes despite
-        # enforcement correctly allowing and the file genuinely
-        # changing). The bind mounts make workspace_dir on the host the
-        # SAME files the container writes to, not a copy, so snapshotting
-        # it from here needs no access into the container at all.
-        before_snapshot = snapshot_workspace(workspace_dir)
-
-        with stdout_path.open("wb") as out, stderr_path.open("wb") as err:
-            result = subprocess.run(
-                [
-                    "docker", "compose", "-f", str(COMPOSE_FILE), "-f", str(override_path),
-                    "up", "--build",
-                    "--abort-on-container-exit",
-                    "--exit-code-from", "agent",
-                ],
-                cwd=REPO_ROOT,
-                env=env,
-                stdout=out,
-                stderr=err,
+        # T6 TOCTOU mitigation (docs/toctou-investigation-t6.md): held
+        # for this call's ENTIRE duration, not just override generation,
+        # so no second run against this same workspace can ever be
+        # alive to race write_filesystem_override's symlink check
+        # against this run's later `docker compose up` actually
+        # performing the mount -- see idhn.runtime.workspace_lock's
+        # module docstring for the full threat model.
+        with workspace_lock(workspace_dir):
+            env = os.environ.copy()
+            env.setdefault("IDHN_CODEX_AUTH_PATH", str(DEFAULT_CODEX_AUTH_PATH))
+            override_path = write_filesystem_override(manifest, run_dir, env["IDHN_CODEX_AUTH_PATH"], workspace_dir)
+            gateway_manifest_path = gateway_manifest_mount(manifest, run_dir)
+            env.update(
+                {
+                    "IDHN_RUN_ID": execution_id,
+                    "IDHN_RUN_DIR": str(run_dir.resolve()),
+                    # The full container path the gateway should load,
+                    # computed here rather than built by string
+                    # concatenation in compose.yaml (`/policies/${IDHN_POLICY_FILE}`,
+                    # the old mechanism) -- that concatenation unconditionally
+                    # prepended /policies/ even to a manifest outside it,
+                    # which is exactly what broke run-20261005-64e5af. See
+                    # gateway_manifest_mount's docstring.
+                    "IDHN_MANIFEST_PATH": gateway_manifest_path,
+                    "IDHN_TASK": task_description or manifest.task.description,
+                    "IDHN_TASK_ID": manifest.task.id,
+                    "IDHN_AGENT_COMMAND": build_agent_script(command, before_test_cmd, after_test_cmd, restrict_path=True),
+                    "IDHN_ALLOWED_BINARIES": ",".join(allowed_binaries(manifest.capabilities)),
+                    "IDHN_CPU": str(manifest.limits.get("cpu", 2)),
+                    "IDHN_MEMORY": str(manifest.limits.get("memory", "4g")),
+                    "IDHN_CANARY_VALUE": read_canary_value(workspace_dir),
+                }
             )
 
-        subprocess.run(
-            ["docker", "compose", "-f", str(COMPOSE_FILE), "-f", str(override_path), "down", "-v"],
-            cwd=REPO_ROOT,
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+            stdout_path = run_dir / "stdout.log"
+            stderr_path = run_dir / "stderr.log"
 
-        after_snapshot = snapshot_workspace(workspace_dir)
-        changed_paths = diff_workspace_snapshots(before_snapshot, after_snapshot)
-        (run_dir / "observed-filesystem-writes.json").write_text(
-            json.dumps(sorted(changed_paths), indent=2), encoding="utf-8"
-        )
+            # Ground-truth filesystem-write observation (idhn.audit.
+            # filesystem_diff): a content-hash snapshot taken right before the
+            # container starts and right after it exits, independent of
+            # whether Codex reported the write through its structured
+            # file_change tool or an opaque shell command -- see that
+            # module's docstring for why (a real write via an inline heredoc
+            # was observed reporting zero filesystem writes despite
+            # enforcement correctly allowing and the file genuinely
+            # changing). The bind mounts make workspace_dir on the host the
+            # SAME files the container writes to, not a copy, so snapshotting
+            # it from here needs no access into the container at all.
+            before_snapshot = snapshot_workspace(workspace_dir)
 
-        return result.returncode
+            with stdout_path.open("wb") as out, stderr_path.open("wb") as err:
+                result = subprocess.run(
+                    [
+                        "docker", "compose", "-f", str(COMPOSE_FILE), "-f", str(override_path),
+                        "up", "--build",
+                        "--abort-on-container-exit",
+                        "--exit-code-from", "agent",
+                    ],
+                    cwd=REPO_ROOT,
+                    env=env,
+                    stdout=out,
+                    stderr=err,
+                )
+
+            subprocess.run(
+                ["docker", "compose", "-f", str(COMPOSE_FILE), "-f", str(override_path), "down", "-v"],
+                cwd=REPO_ROOT,
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+            after_snapshot = snapshot_workspace(workspace_dir)
+            changed_paths = diff_workspace_snapshots(before_snapshot, after_snapshot)
+            (run_dir / "observed-filesystem-writes.json").write_text(
+                json.dumps(sorted(changed_paths), indent=2), encoding="utf-8"
+            )
+
+            return result.returncode
 
     def stop(self) -> None:
         subprocess.run(

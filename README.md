@@ -1,4 +1,4 @@
-# IDHN v0.3.0 -- Interchangeable Deterministic Host Network
+# IDHN v0.3.1 -- Interchangeable Deterministic Host Network
 
 **IDHN enforces task-scoped permissions for autonomous coding agents.
 In a controlled experiment, it prevented an unauthorized modification

@@ -1,4 +1,4 @@
-# IDHN v0.1 -- Interchangeable Deterministic Host Network
+# IDHN v0.3.0 -- Interchangeable Deterministic Host Network
 
 A proof of concept for putting a deterministic, auditable policy
 boundary between a coding agent (first: Codex) and the resources it can

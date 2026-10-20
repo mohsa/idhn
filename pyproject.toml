@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "idhn"
-version = "0.1.0"
+version = "0.3.0"
 description = "Interchangeable Deterministic Host Network -- a policy boundary between coding agents and the resources they touch."
 readme = "README.md"
 requires-python = ">=3.11"

@@ -804,6 +804,27 @@ argument misidentified as process-exec targets), not real bypasses of
 the PATH-allowlist or filesystem enforcement verified directly
 elsewhere in this project.
 
+## Week 5: demo and security-boundary documentation
+
+Two deliverables. **Demo**: `docs/demo-security-boundary.md` -- one
+real `idhn run` (the exact manifest and command documented in this
+README's own "Running the M0 experiment" section) showing a permitted
+task fixed correctly (ground truth: only `src/parser.js` touched) and a
+deliberately out-of-scope write blocked cleanly (`package.json`:
+`Read-only file system`), with frozen, checksummed evidence
+(`docs/evidence/demo-security-boundary/`). **Documentation**: `docs/
+security-boundary-and-limitations.md` consolidates every security
+finding and explicit boundary from this project's work into one
+document for external review -- what's mechanically enforced
+(filesystem, network, process, concurrency), what's explicitly out of
+scope by design (a host-level attacker, provider-side out-of-band tool
+execution), known audit gaps (filesystem/process denials visible only
+in the agent's own trace, no general read instrumentation, the
+text-parsing audit classifier's confirmed false-positive mode), and two
+small, narrow, still-unfixed findings named plainly rather than left
+for someone else to rediscover (a policy-engine crash on a malformed
+manifest pattern, a silently-dropped `secrets` capability).
+
 ## Post-v0.2.1 dogfood fixes
 
 Full writeup: `docs/dogfood-run-20260928-da17ce.md`. The first manual

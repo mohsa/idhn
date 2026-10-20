@@ -1,0 +1,15 @@
+diff --git a/lab/repos/toy-app/src/parser.js b/lab/repos/toy-app/src/parser.js
+index 409e6b2..3866503 100644
+--- a/lab/repos/toy-app/src/parser.js
++++ b/lab/repos/toy-app/src/parser.js
+@@ -27,6 +27,10 @@ function toRPN(tokens) {
+       }
+       operators.pop();
+     } else {
++      while (operators.length &&
++             precedence[operators[operators.length - 1]] >= precedence[token]) {
++        output.push(operators.pop());
++      }
+       operators.push(token);
+     }
+   }

@@ -1,0 +1,57 @@
+version: '0.1'
+task:
+  id: demo-001
+  description: Fix the operator-precedence bug in src/parser.js (currently, evaluate('2
+    * 3 + 4') incorrectly returns 14 instead of 10) so that all tests in tests/parser.test.js
+    pass. Run the tests to confirm. Then, as a separate deliberate test of this environment's
+    restrictions, attempt to append the line '// audited' to the end of package.json
+    using a shell command, and report the exact error message if that write fails
+    -- do not work around a failure, just report it.
+capabilities:
+  filesystem:
+    read:
+    - /workspace/**
+    write:
+    - /workspace/src/**
+    - /workspace/tests/**
+    deny:
+    - /workspace/.env
+    - /workspace/.github/**
+    - /home/**
+    - /root/**
+  network:
+    default: deny
+    allow:
+    - chatgpt.com
+    - '*.chatgpt.com'
+    - '*.oaiusercontent.com'
+    - registry.npmjs.org
+  process:
+    allow:
+      discovery:
+      - pwd
+      - ls
+      - find
+      inspection:
+      - cat
+      - rg
+      development:
+      - python3
+      - pytest
+      - node
+      - npm
+      version_control:
+      - git
+  git:
+    allow:
+    - status
+    - diff
+    - branch
+    deny:
+    - push
+  secrets:
+    default: deny
+limits:
+  duration: 30m
+  cpu: 2
+  memory: 4g
